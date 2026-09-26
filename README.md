@@ -1,6 +1,6 @@
 # MissionOS
 
-MissionOS is an open-source AI agent project. This repository currently contains a React frontend and a modular Express API foundation; agent behavior and external search integrations are not included yet.
+MissionOS is an open-source AI agent project. This repository contains a React frontend, a modular Express API, and a model-backed agent foundation with a Gemini planner. SerpApi and database integrations are not included yet.
 
 ## Requirements
 
@@ -42,3 +42,20 @@ To run either application separately, use `npm run dev --workspace=frontend` or 
 ## Environment variables
 
 The Express API reads `PORT` and `FRONTEND_ORIGIN` from `backend/.env`. The frontend's optional `VITE_API_BASE_URL` is a public API URL only; never put secrets or API keys in frontend environment variables.
+
+## Gemini planner
+
+The backend includes a Gemini function-calling planner. The checked-in environment example uses mock mode, so the agent can run without a key. For live Gemini calls, add a Gemini API key to `backend/.env` and set:
+
+```dotenv
+GEMINI_API_KEY=your-key
+GEMINI_MOCK_MODE=false
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODE=true
+```
+
+Keep `GEMINI_API_KEY` in the backend environment only; do not use a `VITE_` variable for it. `GEMINI_FALLBACK_MODE=true` falls back to the capability planner if a Gemini request or response parse fails. Set it to `false` to surface those failures instead.
+
+Register tools with `ToolRegistry`, then create a model-backed agent with `createGeminiAgent(registry)` from `backend/src/services/gemini`. Each registered tool can provide an `inputSchema`; the model's selected function call is validated by that tool and executed only through the existing `ToolExecutor`. Gemini receives the mission, constraints, available tool descriptions and schemas, agent-state snapshot, prior observations, and replan history. The mock client selects a compatible tool and completes after observing its result.
+
+Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.
