@@ -47,3 +47,59 @@ export interface GoogleMapsPlacesOutput {
   query: string
   results: readonly GoogleMapsPlaceResult[]
 }
+
+export type GoogleFlightsTravelClass = 'economy' | 'premium_economy' | 'business' | 'first'
+
+export interface GoogleFlightsInput {
+  departure: string
+  destination: string
+  departureDate: string
+  returnDate?: string
+  passengers: number
+  travelClass: GoogleFlightsTravelClass
+}
+
+export interface GoogleFlightResult {
+  airline: string
+  flightNumber: string
+  departure: string
+  arrival: string
+  duration: number
+  stops: number
+  price: number | string
+  link: string
+}
+
+export interface GoogleFlightsOutput {
+  departure: string
+  destination: string
+  results: readonly GoogleFlightResult[]
+}
+
+export interface GoogleHotelsInput {
+  destination: string
+  checkIn: string
+  checkOut: string
+  guests: number
+  preferences?: readonly string[]
+}
+
+export interface GoogleHotelPrice {
+  amount?: number
+  display?: string
+}
+
+export interface GoogleHotelResult {
+  name: string
+  price?: GoogleHotelPrice
+  rating?: number
+  reviews?: number
+  location?: string
+  amenities?: readonly string[]
+  link: string
+}
+
+export interface GoogleHotelsOutput {
+  destination: string
+  results: readonly GoogleHotelResult[]
+}

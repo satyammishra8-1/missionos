@@ -1,0 +1,238 @@
+import type { MissionGoal, ToolDefinition } from '../../agent/types.js'
+import type {
+  GoogleFlightsInput,
+  GoogleFlightsOutput,
+  GoogleFlightResult,
+  SerpApiClient,
+  SerpApiSearchParameters,
+} from './types.js'
+
+const maximumPassengers = 9
+const maximumFlightResults = 50
+const travelClasses = {
+  economy: 1,
+  premium_economy: 2,
+  business: 3,
+  first: 4,
+} as const
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isValidDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+function parseInput(input: unknown): GoogleFlightsInput {
+  if (!isRecord(input)) throw new Error('Google Flights input must be an object')
+  const allowedFields = new Set([
+    'departure', 'destination', 'departureDate', 'returnDate', 'passengers', 'travelClass',
+  ])
+  if (Object.keys(input).some((key) => !allowedFields.has(key))) {
+    throw new Error('Google Flights input contains unsupported fields')
+  }
+  if (typeof input.departure !== 'string' || !input.departure.trim()) {
+    throw new Error('Google Flights departure must be a non-empty string')
+  }
+  if (typeof input.destination !== 'string' || !input.destination.trim()) {
+    throw new Error('Google Flights destination must be a non-empty string')
+  }
+  if (typeof input.departureDate !== 'string' || !isValidDate(input.departureDate)) {
+    throw new Error('Google Flights departureDate must be a valid YYYY-MM-DD date')
+  }
+  if (input.returnDate !== undefined) {
+    if (typeof input.returnDate !== 'string' || !isValidDate(input.returnDate)) {
+      throw new Error('Google Flights returnDate must be a valid YYYY-MM-DD date')
+    }
+    if (input.returnDate <= input.departureDate) {
+      throw new Error('Google Flights returnDate must be after departureDate')
+    }
+  }
+  if (
+    !Number.isInteger(input.passengers) ||
+    (input.passengers as number) < 1 ||
+    (input.passengers as number) > maximumPassengers
+  ) {
+    throw new Error(`Google Flights passengers must be an integer between 1 and ${maximumPassengers}`)
+  }
+  if (
+    typeof input.travelClass !== 'string' ||
+    !Object.hasOwn(travelClasses, input.travelClass)
+  ) {
+    throw new Error('Google Flights travelClass must be economy, premium_economy, business, or first')
+  }
+
+  return {
+    departure: input.departure.trim(),
+    destination: input.destination.trim(),
+    departureDate: input.departureDate,
+    ...(typeof input.returnDate === 'string' ? { returnDate: input.returnDate } : {}),
+    passengers: input.passengers as number,
+    travelClass: input.travelClass as GoogleFlightsInput['travelClass'],
+  }
+}
+
+function createFlightsLink(input: GoogleFlightsInput): string {
+  const search = [
+    `Flights from ${input.departure} to ${input.destination}`,
+    `on ${input.departureDate}`,
+    ...(input.returnDate ? [`returning ${input.returnDate}`] : []),
+  ].join(' ')
+  const url = new URL('https://www.google.com/travel/flights')
+  url.searchParams.set('q', search)
+  return url.toString()
+}
+
+function parseFlightGroup(
+  group: unknown,
+  searchLink: string,
+): GoogleFlightResult | undefined {
+  if (!isRecord(group) || !Array.isArray(group.flights) || group.flights.length === 0) {
+    return undefined
+  }
+
+  const segments = group.flights
+  const firstSegment = segments[0]
+  const lastSegment = segments.at(-1)
+  if (!isRecord(firstSegment) || !isRecord(lastSegment)) return undefined
+
+  const airlines: string[] = []
+  const flightNumbers: string[] = []
+  for (const segment of segments) {
+    if (!isRecord(segment)) return undefined
+    if (typeof segment.airline !== 'string' || !segment.airline.trim()) return undefined
+    if (typeof segment.flight_number !== 'string' || !segment.flight_number.trim()) return undefined
+    airlines.push(segment.airline.trim())
+    flightNumbers.push(segment.flight_number.trim())
+  }
+
+  const departureAirport = firstSegment.departure_airport
+  const arrivalAirport = lastSegment.arrival_airport
+  if (
+    !isRecord(departureAirport) || typeof departureAirport.time !== 'string' || !departureAirport.time ||
+    !isRecord(arrivalAirport) || typeof arrivalAirport.time !== 'string' || !arrivalAirport.time
+  ) {
+    return undefined
+  }
+
+  const price = group.price
+  if (
+    (typeof price !== 'number' && typeof price !== 'string') ||
+    (typeof price === 'number' && !Number.isFinite(price))
+  ) {
+    return undefined
+  }
+
+  const segmentDuration = segments.reduce((total, segment) => {
+    return isRecord(segment) && typeof segment.duration === 'number' && Number.isFinite(segment.duration)
+      ? total + segment.duration
+      : total
+  }, 0)
+  const duration = typeof group.total_duration === 'number' && Number.isFinite(group.total_duration)
+    ? group.total_duration
+    : segmentDuration
+  if (duration <= 0) return undefined
+
+  const link = typeof group.link === 'string' && /^https?:\/\//i.test(group.link)
+    ? group.link
+    : searchLink
+  const layovers = Array.isArray(group.layovers) ? group.layovers.length : segments.length - 1
+
+  return {
+    airline: [...new Set(airlines)].join(', '),
+    flightNumber: flightNumbers.join(', '),
+    departure: departureAirport.time,
+    arrival: arrivalAirport.time,
+    duration,
+    stops: Math.max(0, layovers),
+    price,
+    link,
+  }
+}
+
+export function parseGoogleFlightsResponse(
+  payload: unknown,
+  input: GoogleFlightsInput,
+): readonly GoogleFlightResult[] {
+  if (!isRecord(payload)) throw new Error('Google Flights returned an invalid response')
+  if (typeof payload.error === 'string') throw new Error(`Google Flights search failed: ${payload.error}`)
+
+  const collections = ['best_flights', 'other_flights'] as const
+  let hasCollection = false
+  let candidateCount = 0
+  const results: GoogleFlightResult[] = []
+  const searchLink = createFlightsLink(input)
+
+  for (const key of collections) {
+    const value = payload[key]
+    if (value === undefined) continue
+    hasCollection = true
+    if (!Array.isArray(value)) throw new Error(`Google Flights returned invalid ${key}`)
+    candidateCount += value.length
+    for (const group of value) {
+      const result = parseFlightGroup(group, searchLink)
+      if (result) results.push(result)
+    }
+  }
+  if (!hasCollection) throw new Error('Google Flights response is missing flight results')
+  if (candidateCount > 0 && results.length === 0) {
+    throw new Error('Google Flights response contains no valid flight itineraries')
+  }
+  return results.slice(0, maximumFlightResults)
+}
+
+function buildSearchParameters(input: GoogleFlightsInput): SerpApiSearchParameters {
+  return {
+    engine: 'google_flights',
+    departure_id: input.departure,
+    arrival_id: input.destination,
+    outbound_date: input.departureDate,
+    type: input.returnDate ? 1 : 2,
+    adults: input.passengers,
+    travel_class: travelClasses[input.travelClass],
+    ...(input.returnDate ? { return_date: input.returnDate } : {}),
+  }
+}
+
+export function createGoogleFlightsTool(
+  client: SerpApiClient,
+): ToolDefinition<GoogleFlightsInput, GoogleFlightsOutput> {
+  return {
+    id: 'google-flights',
+    description: 'Search Google Flights for itineraries matching route, date, passenger, and class details.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        departure: { type: 'string', description: 'Departure airport code or location.' },
+        destination: { type: 'string', description: 'Arrival airport code or location.' },
+        departureDate: { type: 'string', description: 'Departure date in YYYY-MM-DD format.' },
+        returnDate: { type: 'string', description: 'Optional return date in YYYY-MM-DD format.' },
+        passengers: { type: 'integer', description: `Number of passengers, from 1 to ${maximumPassengers}.` },
+        travelClass: {
+          type: 'string',
+          enum: Object.keys(travelClasses),
+          description: 'Economy, premium economy, business, or first class.',
+        },
+      },
+      required: ['departure', 'destination', 'departureDate', 'passengers', 'travelClass'],
+      additionalProperties: false,
+    },
+    supports: (goal: MissionGoal) => goal.description.trim().length > 0,
+    createInput: ({ goal }) => ({
+      departure: goal.description,
+      destination: goal.description,
+      departureDate: new Date().toISOString().slice(0, 10),
+      passengers: 1,
+      travelClass: 'economy',
+    }),
+    parseInput,
+    execute: async (input) => ({
+      departure: input.departure,
+      destination: input.destination,
+      results: parseGoogleFlightsResponse(await client.search(buildSearchParameters(input)), input),
+    }),
+  }
+}

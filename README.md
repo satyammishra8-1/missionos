@@ -58,7 +58,7 @@ Keep `GEMINI_API_KEY` in the backend environment only; do not use a `VITE_` vari
 
 Register tools with `ToolRegistry`, then create a model-backed agent with `createGeminiAgent(registry)` from `backend/src/services/gemini`. Each registered tool can provide an `inputSchema`; the model's selected function call is validated by that tool and executed only through the existing `ToolExecutor`. Gemini receives the mission, constraints, available tool descriptions and schemas, agent-state snapshot, prior observations, and replan history. The mock client selects a compatible tool and completes after observing its result.
 
-## SerpApi Google Search
+## SerpApi Search Tools
 
 The backend provides a reusable SerpApi client and a Google Search tool that registers with the existing `ToolRegistry` and runs through `ToolExecutor`. Mock mode is enabled by default and works without an API key. To enable live searches, set the following in `backend/.env`:
 
@@ -67,6 +67,13 @@ SERPAPI_API_KEY=your-key
 SERPAPI_MOCK_MODE=false
 ```
 
-Keep `SERPAPI_API_KEY` in the backend environment only; never use a `VITE_` variable for it. Register the provider with `registerSerpApiTools(registry)` from `backend/src/services/serpapi`. Google Search accepts `query`, optional `location`, and optional `numResults` (1-100), and returns normalized organic results with `title`, `link`, `snippet`, and source domain. Google Maps Places accepts `query`, optional `location`, and optional `radius` in meters and `resultLimit` (1-100); radius requires a location and maps to the Maps viewport height (twice the requested radius), while the result limit is applied locally. It returns place names and any available addresses, ratings, review counts, coordinates, and place links. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
+Keep `SERPAPI_API_KEY` in the backend environment only; never use a `VITE_` variable for it. Register the provider with `registerSerpApiTools(registry)` from `backend/src/services/serpapi`.
+
+Google Search accepts a query, optional location, and optional result count. Google Maps Places accepts a query, optional location and radius, and optional result limit. The travel tools accept:
+
+- Google Flights: departure, destination, departure date, optional return date, passengers, and travel class (`economy`, `premium_economy`, `business`, or `first`). Results include airlines, flight numbers, departure/arrival times, duration, stops, price, and a Google Flights link. A return date is included in the round-trip search.
+- Google Hotels: destination, check-in/check-out dates, guest count, and optional preference terms. Results include hotel name, available price/rating/review/location/amenities fields, and a hotel search link. Preferences are appended to the destination search query.
+
+The Maps radius is sent as twice the requested Google Maps viewport height, and result limits are applied locally. Mock mode is enabled by default and works without an API key. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
 
 Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.

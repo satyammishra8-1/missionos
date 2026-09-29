@@ -18,6 +18,37 @@ export class MockSerpApiClient implements SerpApiClientContract {
       }
     }
 
+    if (parameters.engine === 'google_flights') {
+      return {
+        best_flights: [{
+          flights: [{
+            airline: 'Mock Air',
+            flight_number: 'MA 101',
+            departure_airport: { time: `${parameters.outbound_date} 09:00` },
+            arrival_airport: { time: `${parameters.outbound_date} 12:00` },
+            duration: 180,
+          }],
+          total_duration: 180,
+          layovers: [],
+          price: 250,
+        }],
+      }
+    }
+
+    if (parameters.engine === 'google_hotels') {
+      return {
+        properties: [{
+          name: `Mock Hotel in ${String(parameters.q ?? '')}`,
+          rate_per_night: { extracted_lowest: 125, lowest: '$125' },
+          overall_rating: 4.4,
+          reviews: 86,
+          address: '200 Example Avenue',
+          amenities: ['Free Wi-Fi', 'Air conditioning'],
+          link: 'https://www.google.com/travel/search?q=mock-hotel',
+        }],
+      }
+    }
+
     return {
       organic_results: [
         {

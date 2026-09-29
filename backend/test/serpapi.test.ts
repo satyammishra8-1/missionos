@@ -7,6 +7,8 @@ import { ToolRegistry } from '../src/agent/ToolRegistry.js'
 import { createGeminiAgent } from '../src/services/gemini/index.js'
 import {
   createSerpApiClient,
+  parseGoogleFlightsResponse,
+  parseGoogleHotelsResponse,
   parseGoogleMapsPlacesResponse,
   parseGoogleSearchResponse,
   registerSerpApiTools,
@@ -21,6 +23,22 @@ function createRegistry(client: SerpApiClient): ToolRegistry {
   return registry
 }
 
+function createAgentForTool(registry: ToolRegistry, toolId: string, input: unknown): Agent {
+  const planner = new Planner({
+    createPlan: ({ goal: mission }) => ({
+      goalId: mission.id,
+      evaluateAfterExecution: false,
+      steps: [{
+        id: `mock-${toolId}-step`,
+        toolId,
+        objective: `Execute ${toolId}`,
+        input,
+      }],
+    }),
+  })
+  return new Agent(registry, planner)
+}
+
 test('live API configuration requires a key when mock mode is disabled', () => {
   assert.throws(
     () => createSerpApiClient({ apiKey: '', mockMode: false }),
@@ -32,6 +50,8 @@ test('SerpApi registration adds Google Search to the existing tool registry', ()
   const registry = createRegistry({ search: async () => ({ organic_results: [] }) })
   const searchTool = registry.get('google-search')
   const placesTool = registry.get('google-maps-places')
+  const flightsTool = registry.get('google-flights')
+  const hotelsTool = registry.get('google-hotels')
 
   assert.ok(searchTool)
   assert.match(searchTool.description, /Google/)
@@ -39,6 +59,284 @@ test('SerpApi registration adds Google Search to the existing tool registry', ()
   assert.ok(placesTool)
   assert.match(placesTool.description, /Google Maps/)
   assert.deepEqual(placesTool.inputSchema?.required, ['query'])
+  assert.ok(flightsTool)
+  assert.match(flightsTool.description, /Google Flights/)
+  assert.ok(hotelsTool)
+  assert.match(hotelsTool.description, /Google Hotels/)
+})
+
+const validFlightsInput = {
+  departure: 'JFK',
+  destination: 'LHR',
+  departureDate: '2027-04-10',
+  passengers: 2,
+  travelClass: 'business',
+} as const
+
+test('Google Flights strictly validates route, dates, passengers, class, and unknown fields', () => {
+  const tool = createRegistry({ search: async () => ({ best_flights: [] }) }).get('google-flights')
+  assert.ok(tool)
+
+  assert.throws(() => tool.validateInput({ ...validFlightsInput, departure: ' ' }), /departure/)
+  assert.throws(() => tool.validateInput({ ...validFlightsInput, departureDate: '2027-02-30' }), /valid YYYY-MM-DD/)
+  assert.throws(() => tool.validateInput({ ...validFlightsInput, returnDate: '2027-04-10' }), /after departureDate/)
+  assert.throws(() => tool.validateInput({ ...validFlightsInput, passengers: 0 }), /passengers must be an integer/)
+  assert.throws(() => tool.validateInput({ ...validFlightsInput, travelClass: 'luxury' }), /travelClass/)
+  assert.throws(() => tool.validateInput({ ...validFlightsInput, extra: true }), /unsupported fields/)
+})
+
+test('Google Flights parses multi-segment itineraries into structured results', () => {
+  const results = parseGoogleFlightsResponse({
+    best_flights: [{
+      flights: [
+        {
+          airline: 'Air One',
+          flight_number: 'AO 12',
+          departure_airport: { time: '2027-04-10 08:00' },
+          arrival_airport: { time: '2027-04-10 10:00' },
+          duration: 120,
+        },
+        {
+          airline: 'Air Two',
+          flight_number: 'AT 34',
+          departure_airport: { time: '2027-04-10 11:00' },
+          arrival_airport: { time: '2027-04-10 15:00' },
+          duration: 240,
+        },
+      ],
+      layovers: [{ name: 'Reykjavik Airport' }],
+      total_duration: 420,
+      price: 675,
+    }],
+    other_flights: [],
+  }, validFlightsInput)
+
+  assert.deepEqual(results, [{
+    airline: 'Air One, Air Two',
+    flightNumber: 'AO 12, AT 34',
+    departure: '2027-04-10 08:00',
+    arrival: '2027-04-10 15:00',
+    duration: 420,
+    stops: 1,
+    price: 675,
+    link: 'https://www.google.com/travel/flights?q=Flights+from+JFK+to+LHR+on+2027-04-10',
+  }])
+})
+
+test('Google Flights rejects malformed responses and safely handles API errors', () => {
+  assert.throws(() => parseGoogleFlightsResponse({}, validFlightsInput), /missing flight results/)
+  assert.throws(
+    () => parseGoogleFlightsResponse({ best_flights: 'not-an-array' }, validFlightsInput),
+    /invalid best_flights/,
+  )
+  assert.throws(
+    () => parseGoogleFlightsResponse({ error: 'Invalid route' }, validFlightsInput),
+    /Invalid route/,
+  )
+})
+
+test('Google Flights calls the SerpApi engine through ToolExecutor', async () => {
+  let requestUrl: URL | undefined
+  const fetchImplementation: typeof fetch = async (input) => {
+    requestUrl = new URL(input.toString())
+    return new Response(JSON.stringify({ best_flights: [], other_flights: [] }), { status: 200 })
+  }
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, {
+    apiKey: 'test-key',
+    mockMode: false,
+    fetchImplementation,
+  })
+  const tool = registry.get('google-flights')
+  assert.ok(tool)
+
+  const result = await new ToolExecutor(registry).execute({
+    id: 'flight-step',
+    toolId: tool.id,
+    objective: 'Find flights',
+    input: { ...validFlightsInput, returnDate: '2027-04-20' },
+  }, { goal, observations: [] })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(requestUrl && Object.fromEntries(requestUrl.searchParams), {
+    engine: 'google_flights',
+    departure_id: 'JFK',
+    arrival_id: 'LHR',
+    outbound_date: '2027-04-10',
+    type: '1',
+    adults: '2',
+    travel_class: '3',
+    return_date: '2027-04-20',
+    api_key: 'test-key',
+  })
+})
+
+test('Google Flights reports transport failures through ToolExecutor', async () => {
+  const fetchImplementation: typeof fetch = async () =>
+    new Response(JSON.stringify({ error: 'Flights service unavailable' }), { status: 502 })
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: 'test-key', mockMode: false, fetchImplementation })
+  const tool = registry.get('google-flights')
+  assert.ok(tool)
+
+  const result = await new ToolExecutor(registry).execute({
+    id: 'failed-flight-step',
+    toolId: tool.id,
+    objective: 'Search flights',
+    input: validFlightsInput,
+  }, { goal, observations: [] })
+
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.error, /status 502/)
+})
+
+test('Google Flights mock mode works without an API key through Agent and ToolExecutor', async () => {
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: '', mockMode: true })
+  const state = await createAgentForTool(registry, 'google-flights', validFlightsInput).run(goal)
+
+  assert.equal(state.status, 'completed')
+  assert.equal(state.observations[0]?.toolId, 'google-flights')
+  assert.equal(state.observations[0]?.ok, true)
+  assert.deepEqual(state.finalResult, {
+    departure: 'JFK',
+    destination: 'LHR',
+    results: [{
+      airline: 'Mock Air',
+      flightNumber: 'MA 101',
+      departure: '2027-04-10 09:00',
+      arrival: '2027-04-10 12:00',
+      duration: 180,
+      stops: 0,
+      price: 250,
+      link: 'https://www.google.com/travel/flights?q=Flights+from+JFK+to+LHR+on+2027-04-10',
+    }],
+  })
+})
+
+const validHotelsInput = {
+  destination: 'Reykjavik, Iceland',
+  checkIn: '2027-06-10',
+  checkOut: '2027-06-15',
+  guests: 2,
+} as const
+
+test('Google Hotels strictly validates destination, stay dates, guests, preferences, and unknown fields', () => {
+  const tool = createRegistry({ search: async () => ({ properties: [] }) }).get('google-hotels')
+  assert.ok(tool)
+
+  assert.throws(() => tool.validateInput({ ...validHotelsInput, destination: ' ' }), /destination/)
+  assert.throws(() => tool.validateInput({ ...validHotelsInput, checkIn: '2027-02-30' }), /valid YYYY-MM-DD/)
+  assert.throws(() => tool.validateInput({ ...validHotelsInput, checkOut: validHotelsInput.checkIn }), /after checkIn/)
+  assert.throws(() => tool.validateInput({ ...validHotelsInput, guests: 0 }), /guests must be an integer/)
+  assert.throws(() => tool.validateInput({ ...validHotelsInput, preferences: [''] }), /preferences/)
+  assert.throws(() => tool.validateInput({ ...validHotelsInput, extra: true }), /unsupported fields/)
+})
+
+test('Google Hotels parses structured prices, ratings, reviews, location, amenities, and links', () => {
+  const results = parseGoogleHotelsResponse({
+    properties: [{
+      name: 'Harbor Hotel',
+      rate_per_night: { extracted_lowest: 189, lowest: '$189 per night' },
+      overall_rating: 4.6,
+      reviews: 942,
+      address: '1 Harbor Road, Reykjavik',
+      amenities: ['Free Wi-Fi', ' Breakfast ', 23],
+      link: 'https://www.google.com/travel/search?q=harbor-hotel',
+    }],
+  }, validHotelsInput)
+
+  assert.deepEqual(results, [{
+    name: 'Harbor Hotel',
+    price: { amount: 189, display: '$189 per night' },
+    rating: 4.6,
+    reviews: 942,
+    location: '1 Harbor Road, Reykjavik',
+    amenities: ['Free Wi-Fi', 'Breakfast'],
+    link: 'https://www.google.com/travel/search?q=harbor-hotel',
+  }])
+})
+
+test('Google Hotels rejects malformed responses and safely handles API errors', () => {
+  assert.throws(() => parseGoogleHotelsResponse({}, validHotelsInput), /missing properties/)
+  assert.throws(
+    () => parseGoogleHotelsResponse({ properties: [null] }, validHotelsInput),
+    /no valid hotel properties/,
+  )
+  assert.throws(
+    () => parseGoogleHotelsResponse({ error: 'Invalid stay dates' }, validHotelsInput),
+    /Invalid stay dates/,
+  )
+})
+
+test('Google Hotels calls SerpApi with dates, guests, and preferences through ToolExecutor', async () => {
+  let requestUrl: URL | undefined
+  const fetchImplementation: typeof fetch = async (input) => {
+    requestUrl = new URL(input.toString())
+    return new Response(JSON.stringify({ properties: [] }), { status: 200 })
+  }
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: 'test-key', mockMode: false, fetchImplementation })
+  const tool = registry.get('google-hotels')
+  assert.ok(tool)
+
+  const result = await new ToolExecutor(registry).execute({
+    id: 'hotel-step',
+    toolId: tool.id,
+    objective: 'Find a hotel',
+    input: { ...validHotelsInput, preferences: ['free breakfast', 'pool'] },
+  }, { goal, observations: [] })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(requestUrl && Object.fromEntries(requestUrl.searchParams), {
+    engine: 'google_hotels',
+    q: 'Reykjavik, Iceland free breakfast pool',
+    check_in_date: '2027-06-10',
+    check_out_date: '2027-06-15',
+    adults: '2',
+    api_key: 'test-key',
+  })
+})
+
+test('Google Hotels reports transport failures through ToolExecutor', async () => {
+  const fetchImplementation: typeof fetch = async () =>
+    new Response(JSON.stringify({ error: 'Hotels service unavailable' }), { status: 503 })
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: 'test-key', mockMode: false, fetchImplementation })
+  const tool = registry.get('google-hotels')
+  assert.ok(tool)
+
+  const result = await new ToolExecutor(registry).execute({
+    id: 'failed-hotel-step',
+    toolId: tool.id,
+    objective: 'Search hotels',
+    input: validHotelsInput,
+  }, { goal, observations: [] })
+
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.error, /status 503/)
+})
+
+test('Google Hotels mock mode works without an API key through Agent and ToolExecutor', async () => {
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: '', mockMode: true })
+  const state = await createAgentForTool(registry, 'google-hotels', validHotelsInput).run(goal)
+
+  assert.equal(state.status, 'completed')
+  assert.equal(state.observations[0]?.toolId, 'google-hotels')
+  assert.equal(state.observations[0]?.ok, true)
+  assert.deepEqual(state.finalResult, {
+    destination: 'Reykjavik, Iceland',
+    results: [{
+      name: 'Mock Hotel in Reykjavik, Iceland',
+      price: { amount: 125, display: '$125' },
+      rating: 4.4,
+      reviews: 86,
+      location: '200 Example Avenue',
+      amenities: ['Free Wi-Fi', 'Air conditioning'],
+      link: 'https://www.google.com/travel/search?q=mock-hotel',
+    }],
+  })
 })
 
 test('Google Maps Places parses fields that are available and applies the result limit', () => {
