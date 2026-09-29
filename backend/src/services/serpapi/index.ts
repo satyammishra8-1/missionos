@@ -1,6 +1,7 @@
 import { ToolRegistry } from '../../agent/ToolRegistry.js'
 import { environment } from '../../config/environment.js'
 import { createGoogleSearchTool } from './GoogleSearchTool.js'
+import { createGoogleMapsPlacesTool } from './GoogleMapsPlacesTool.js'
 import { MockSerpApiClient } from './MockSerpApiClient.js'
 import { SerpApiClient } from './SerpApiClient.js'
 import type { SerpApiClient as SerpApiClientContract } from './types.js'
@@ -29,15 +30,24 @@ export function registerSerpApiTools(
 ): void {
   const client = options.client ?? createSerpApiClient(options)
   registry.register(createGoogleSearchTool(client))
+  registry.register(createGoogleMapsPlacesTool(client))
 }
 
 export { parseGoogleSearchResponse, createGoogleSearchTool } from './GoogleSearchTool.js'
+export {
+  createGoogleMapsPlacesTool,
+  parseGoogleMapsPlacesResponse,
+} from './GoogleMapsPlacesTool.js'
 export { MockSerpApiClient } from './MockSerpApiClient.js'
 export { SerpApiClient } from './SerpApiClient.js'
 export type {
   GoogleSearchInput,
   GoogleSearchOutput,
   GoogleSearchResult,
+  GoogleMapsCoordinates,
+  GoogleMapsPlaceResult,
+  GoogleMapsPlacesInput,
+  GoogleMapsPlacesOutput,
   SerpApiClient as SerpApiClientContract,
   SerpApiSearchParameters,
 } from './types.js'

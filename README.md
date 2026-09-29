@@ -67,6 +67,6 @@ SERPAPI_API_KEY=your-key
 SERPAPI_MOCK_MODE=false
 ```
 
-Keep `SERPAPI_API_KEY` in the backend environment only; never use a `VITE_` variable for it. Register the provider with `registerSerpApiTools(registry)` from `backend/src/services/serpapi`. The Google Search tool accepts `query`, optional `location`, and optional `numResults` (1-100), and returns normalized organic results with `title`, `link`, `snippet`, and source domain. Tests use mocked clients and injected fetch responses, so they do not make live SerpApi requests.
+Keep `SERPAPI_API_KEY` in the backend environment only; never use a `VITE_` variable for it. Register the provider with `registerSerpApiTools(registry)` from `backend/src/services/serpapi`. Google Search accepts `query`, optional `location`, and optional `numResults` (1-100), and returns normalized organic results with `title`, `link`, `snippet`, and source domain. Google Maps Places accepts `query`, optional `location`, and optional `radius` in meters and `resultLimit` (1-100); radius requires a location and maps to the Maps viewport height (twice the requested radius), while the result limit is applied locally. It returns place names and any available addresses, ratings, review counts, coordinates, and place links. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
 
 Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.

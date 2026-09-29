@@ -3,6 +3,21 @@ import type { SerpApiClient as SerpApiClientContract, SerpApiSearchParameters } 
 export class MockSerpApiClient implements SerpApiClientContract {
   async search(parameters: SerpApiSearchParameters): Promise<unknown> {
     const query = String(parameters.q ?? '')
+    if (parameters.engine === 'google_maps') {
+      return {
+        local_results: [
+          {
+            title: `Mock place for ${query}`,
+            address: '100 Example Street',
+            rating: 4.5,
+            reviews: 23,
+            gps_coordinates: { latitude: 45.5231, longitude: -122.6765 },
+            link: 'https://maps.google.com/?cid=mock-place',
+          },
+        ],
+      }
+    }
+
     return {
       organic_results: [
         {
