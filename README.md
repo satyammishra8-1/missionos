@@ -1,6 +1,6 @@
 # MissionOS
 
-MissionOS is an open-source AI agent project. This repository contains a React frontend, a modular Express API, and a model-backed agent foundation with a Gemini planner. SerpApi and database integrations are not included yet.
+MissionOS is an open-source AI agent project. This repository contains a React frontend, a modular Express API, and an agent foundation with a Gemini planner and a SerpApi Google Search tool. Database integrations are not included yet.
 
 ## Requirements
 
@@ -57,5 +57,16 @@ GEMINI_FALLBACK_MODE=true
 Keep `GEMINI_API_KEY` in the backend environment only; do not use a `VITE_` variable for it. `GEMINI_FALLBACK_MODE=true` falls back to the capability planner if a Gemini request or response parse fails. Set it to `false` to surface those failures instead.
 
 Register tools with `ToolRegistry`, then create a model-backed agent with `createGeminiAgent(registry)` from `backend/src/services/gemini`. Each registered tool can provide an `inputSchema`; the model's selected function call is validated by that tool and executed only through the existing `ToolExecutor`. Gemini receives the mission, constraints, available tool descriptions and schemas, agent-state snapshot, prior observations, and replan history. The mock client selects a compatible tool and completes after observing its result.
+
+## SerpApi Google Search
+
+The backend provides a reusable SerpApi client and a Google Search tool that registers with the existing `ToolRegistry` and runs through `ToolExecutor`. Mock mode is enabled by default and works without an API key. To enable live searches, set the following in `backend/.env`:
+
+```dotenv
+SERPAPI_API_KEY=your-key
+SERPAPI_MOCK_MODE=false
+```
+
+Keep `SERPAPI_API_KEY` in the backend environment only; never use a `VITE_` variable for it. Register the provider with `registerSerpApiTools(registry)` from `backend/src/services/serpapi`. The Google Search tool accepts `query`, optional `location`, and optional `numResults` (1-100), and returns normalized organic results with `title`, `link`, `snippet`, and source domain. Tests use mocked clients and injected fetch responses, so they do not make live SerpApi requests.
 
 Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.

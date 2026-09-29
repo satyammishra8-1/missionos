@@ -16,4 +16,6 @@ export const environment = {
   geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
   geminiMockMode: process.env.GEMINI_MOCK_MODE?.toLowerCase() !== 'false',
   geminiFallbackMode: process.env.GEMINI_FALLBACK_MODE?.toLowerCase() !== 'false',
+  serpApiApiKey: process.env.SERPAPI_API_KEY,
+  serpApiMockMode: process.env.SERPAPI_MOCK_MODE?.toLowerCase() !== 'false',
 }
