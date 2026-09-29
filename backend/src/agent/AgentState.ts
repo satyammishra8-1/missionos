@@ -16,6 +16,7 @@ interface AgentStateValues {
   stepIndex: number
   observations: readonly ToolExecutionResult[]
   constraintEvaluation?: ConstraintEvaluation
+  constraintHistory: readonly ConstraintEvaluation[]
   excludedToolIds: readonly string[]
   replanReasons: readonly string[]
   finalResult?: unknown
@@ -33,6 +34,7 @@ export class AgentState {
       planningHistory: [],
       stepIndex: 0,
       observations: [],
+      constraintHistory: [],
       excludedToolIds: [],
       replanReasons: [],
     })
@@ -47,6 +49,7 @@ export class AgentState {
   get currentStep() { return this.values.plan?.steps[this.values.stepIndex] }
   get observations(): readonly ToolExecutionResult[] { return this.values.observations }
   get constraintEvaluation(): ConstraintEvaluation | undefined { return this.values.constraintEvaluation }
+  get constraintHistory(): readonly ConstraintEvaluation[] { return this.values.constraintHistory }
   get excludedToolIds(): readonly string[] { return this.values.excludedToolIds }
   get replanReasons(): readonly string[] { return this.values.replanReasons }
   get finalResult(): unknown { return this.values.finalResult }
@@ -62,6 +65,7 @@ export class AgentState {
       stepIndex: this.stepIndex,
       observations: this.observations,
       constraintEvaluation: this.constraintEvaluation,
+      constraintHistory: this.constraintHistory,
       excludedToolIds: this.excludedToolIds,
       replanReasons: this.replanReasons,
     }
@@ -108,7 +112,18 @@ export class AgentState {
       throw new Error('A constraint evaluation requires an observation for the current step')
     }
 
-    return this.next({ constraintEvaluation: evaluation })
+    return this.next({
+      constraintEvaluation: evaluation,
+      constraintHistory: [...this.constraintHistory, evaluation],
+    })
+  }
+
+  recordPlanningConstraintEvaluation(evaluation: ConstraintEvaluation): AgentState {
+    this.assertStatus('planning', 'replanning')
+    return this.next({
+      constraintEvaluation: evaluation,
+      constraintHistory: [...this.constraintHistory, evaluation],
+    })
   }
 
   advance(): AgentState {

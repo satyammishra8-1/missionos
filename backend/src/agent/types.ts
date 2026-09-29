@@ -82,6 +82,15 @@ export interface AgentPlan {
 export interface ConstraintEvaluation {
   satisfied: boolean
   violations: readonly string[]
+  assessments?: readonly ConstraintAssessment[]
+}
+
+export type ConstraintStatus = 'satisfied' | 'violated' | 'unknown'
+
+export interface ConstraintAssessment {
+  constraint: string
+  status: ConstraintStatus
+  reason: string
 }
 
 export type AgentStatus =
@@ -99,6 +108,7 @@ export interface AgentStateSnapshot {
   stepIndex: number
   observations: readonly ToolExecutionResult[]
   constraintEvaluation?: ConstraintEvaluation
+  constraintHistory: readonly ConstraintEvaluation[]
   excludedToolIds: readonly string[]
   replanReasons: readonly string[]
 }

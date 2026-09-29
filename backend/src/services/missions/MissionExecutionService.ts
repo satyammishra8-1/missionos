@@ -5,6 +5,8 @@ import { Planner, type PlanningStrategy } from '../../agent/Planner.js'
 import { ToolRegistry } from '../../agent/ToolRegistry.js'
 import type {
   AgentPlan,
+  ConstraintAssessment,
+  ConstraintEvaluation,
   MissionGoal,
   ToolExecutionResult,
 } from '../../agent/types.js'
@@ -12,11 +14,18 @@ import {
   createGeminiAgent,
   type GeminiAgentFactoryOptions,
 } from '../gemini/index.js'
+import { MissionConstraintEvaluator } from './MissionConstraintEvaluator.js'
 import { registerSerpApiTools, type SerpApiOptions } from '../serpapi/index.js'
 
 const maximumGoalLength = 4_000
 const maximumConstraintCount = 30
 const maximumConstraintKeyLength = 80
+const serpApiToolIds = new Set([
+  'google-search',
+  'google-maps-places',
+  'google-flights',
+  'google-hotels',
+])
 
 export interface MissionRequest {
   goal: string
@@ -51,7 +60,15 @@ export interface MissionEvidence {
   title?: string
   url?: string
   source?: string
-  details?: unknown
+  relevantData: unknown
+}
+
+export interface MissionVerifiedFact {
+  claim: string
+  toolId: string
+  source?: string
+  url?: string
+  relevantData: unknown
 }
 
 export interface MissionState {
@@ -71,7 +88,12 @@ export interface MissionState {
   observations: readonly ToolExecutionResult[]
   failures: readonly MissionFailure[]
   replans: readonly MissionReplan[]
+  constraintHistory: readonly ConstraintEvaluation[]
+  constraintAssessments: readonly ConstraintAssessment[]
   evidence: readonly MissionEvidence[]
+  verifiedFacts: readonly MissionVerifiedFact[]
+  assumptions: readonly string[]
+  missingInformation: readonly string[]
   finalResult?: unknown
   iterationCount: number
 }
@@ -158,20 +180,20 @@ function collectEvidence(
   const urlValue = value.link ?? value.placeLink ?? value.url
   const url = typeof urlValue === 'string' ? urlValue : undefined
   const sourceValue = value.source
-  const source = typeof sourceValue === 'string'
-    ? sourceValue
+  const source = typeof sourceValue === 'string' && sourceValue.trim()
+    ? sourceValue.trim()
     : url ? sourceForUrl(url) : undefined
   const title = [value.title, value.name, value.flightNumber]
     .find((candidate): candidate is string => typeof candidate === 'string' && Boolean(candidate.trim()))
 
-  if (url || source) {
+  if (url || source || title) {
     evidence.push({
       stepId,
       toolId,
       ...(title ? { title: title.trim() } : {}),
       ...(url ? { url } : {}),
-      ...(source ? { source } : {}),
-      details: value,
+      source: source ?? (serpApiToolIds.has(toolId) ? 'SerpApi' : toolId),
+      relevantData: value,
     })
   }
   for (const item of Object.values(value)) collectEvidence(item, stepId, toolId, evidence)
@@ -222,6 +244,7 @@ function buildMissionState(
       ? 'planner'
       : state.failureReason.startsWith('Constraint evaluation failed:')
         ? 'constraint'
+        : state.failureReason.startsWith('Constraints need resolution:') ? 'constraint'
         : state.failureReason.startsWith('Tool execution failed:') ? 'tool' : 'mission'
     failures.push({ source, message: state.failureReason })
   }
@@ -230,6 +253,23 @@ function buildMissionState(
   for (const observation of state.observations) {
     if (observation.ok) collectEvidence(observation.output, observation.stepId, observation.toolId, evidence)
   }
+  const constraintAssessments = state.constraintHistory.at(-1)?.assessments ?? []
+  const verifiedFacts: MissionVerifiedFact[] = evidence.map((item) => ({
+    claim: item.title ?? `Observed result from ${item.source ?? item.toolId}`,
+    toolId: item.toolId,
+    ...(item.source ? { source: item.source } : {}),
+    ...(item.url ? { url: item.url } : {}),
+    relevantData: item.relevantData,
+  }))
+  const resultRecord = isRecord(state.finalResult) ? state.finalResult : undefined
+  const assumptions = Array.isArray(resultRecord?.assumptions)
+    ? resultRecord.assumptions.filter((item): item is string => typeof item === 'string')
+    : []
+  const plannerMissingInformation = state.planningHistory.at(-1)?.missingInformation ?? []
+  const constraintMissingInformation = constraintAssessments
+    .filter((item) => item.status === 'unknown')
+    .map((item) => `${item.constraint}: ${item.reason}`)
+  const missingInformation = [...new Set([...plannerMissingInformation, ...constraintMissingInformation])]
 
   return {
     missionId,
@@ -243,19 +283,15 @@ function buildMissionState(
     observations: state.observations,
     failures,
     replans: state.replanReasons.map((reason, index) => ({ iteration: index + 1, reason })),
+    constraintHistory: state.constraintHistory,
+    constraintAssessments,
     evidence,
+    verifiedFacts,
+    assumptions,
+    missingInformation,
     ...(state.finalResult !== undefined ? { finalResult: state.finalResult } : {}),
     iterationCount: state.observations.length,
   }
-}
-
-const successfulObservationEvaluator: ConstraintEvaluator = {
-  evaluate: (_goal, observations) => {
-    const latest = observations.at(-1)
-    return latest?.ok
-      ? { satisfied: true, violations: [] }
-      : { satisfied: false, violations: ['The latest tool observation was unsuccessful.'] }
-  },
 }
 
 export class MissionExecutionService {
@@ -268,6 +304,7 @@ export class MissionExecutionService {
       id: missionId,
       description: request.goal,
       constraints: describeConstraints(request.constraints ?? {}),
+      metadata: { missionConstraints: request.constraints ?? {} },
     }
     const registry = new ToolRegistry()
     const initialState = AgentState.start(goal)
@@ -281,7 +318,7 @@ export class MissionExecutionService {
         timeoutMs: 60_000,
         maxReplans: 3,
         plannerDecidesCompletion: true,
-        constraintEvaluator: this.options.constraintEvaluator ?? successfulObservationEvaluator,
+        constraintEvaluator: this.options.constraintEvaluator ?? new MissionConstraintEvaluator(),
         ...this.options.agent,
       }
       const agent = this.options.plannerStrategy

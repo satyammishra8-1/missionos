@@ -22,6 +22,11 @@ const missionCompleteSchema: JsonSchema = {
   type: 'object',
   properties: {
     summary: { type: 'string', description: 'Actionable summary of the completed mission.' },
+    assumptions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Explicit assumptions that are not established by the available evidence.',
+    },
     missing_information: {
       type: 'array',
       items: { type: 'string' },
@@ -104,7 +109,10 @@ export function parseGeminiFunctionCall(
       decision: 'complete',
       rationale: args.summary,
       missingInformation: stringList(args.missing_information, 'missing_information'),
-      finalResult: args.summary,
+      finalResult: (() => {
+        const assumptions = stringList(args.assumptions, 'assumptions')
+        return assumptions.length ? { summary: args.summary, assumptions } : args.summary
+      })(),
     }
   }
 

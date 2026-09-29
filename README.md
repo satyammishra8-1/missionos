@@ -69,7 +69,9 @@ Submit a goal and optional JSON constraints to `POST /api/missions`:
 }
 ```
 
-The Gemini planner dynamically selects registered search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. The response includes `missionId`, `status`, plan steps, tool calls, findings, source evidence, and `result`. Each mission is limited to 8 tool iterations, 3 replans, and 60 seconds by default. Constraints are passed to Gemini with the mission evidence; tool execution failures and explicit constraint evaluator violations trigger replanning.
+The Gemini planner dynamically selects registered search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. The response includes `missionId`, `status`, plan steps, tool calls, findings, source evidence, and a `result` separating `verifiedFacts`, `assumptions`, and `missingInformation`. Each mission is limited to 8 tool iterations, 3 replans, and 60 seconds by default.
+
+Constraints are supplied as a JSON object. The deterministic evaluator supports `budget` as a number or `{ "max": number }`, `date` as an ISO date or date-field object, `location` as a string or list, `time` as `HH:mm` or `{ "start": "HH:mm", "end": "HH:mm" }`, and `requiredPreferences` as a string list. Each is reported as `satisfied`, `violated`, or `unknown`; violations and unknowns block completion and cause replanning. Constraints with insufficient evidence remain `unknown`, rather than being treated as verified. Budget currently checks observed option prices individually; it does not convert currencies or calculate a combined trip total.
 
 ## SerpApi Search Tools
 

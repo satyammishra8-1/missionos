@@ -30,7 +30,13 @@ export function createMissionRouter(
         toolCalls: mission.toolCalls,
         findings: mission.completedTasks,
         evidence: mission.evidence,
-        result: mission.finalResult ?? null,
+        result: {
+          summary: mission.finalResult ?? null,
+          verifiedFacts: mission.verifiedFacts,
+          assumptions: mission.assumptions,
+          missingInformation: mission.missingInformation,
+          constraints: mission.constraintAssessments,
+        },
       })
     } catch {
       response.status(500).json({ error: 'Mission execution failed' })

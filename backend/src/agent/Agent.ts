@@ -6,6 +6,8 @@ import { ToolRegistry } from './ToolRegistry.js'
 import type {
   ConstraintEvaluation,
   MissionGoal,
+  AgentPlan,
+  PlanStep,
   ToolObservation,
 } from './types.js'
 
@@ -13,6 +15,8 @@ export interface ConstraintEvaluator {
   evaluate(
     goal: MissionGoal,
     observations: readonly ToolObservation[],
+    currentStep?: PlanStep,
+    planHistory?: readonly AgentPlan[],
   ): Promise<ConstraintEvaluation> | ConstraintEvaluation
 }
 
@@ -20,14 +24,18 @@ export class DefaultConstraintEvaluator implements ConstraintEvaluator {
   evaluate(goal: MissionGoal): ConstraintEvaluation {
     const constraints = goal.constraints ?? []
     if (constraints.length === 0) {
-      return { satisfied: true, violations: [] }
+      return { satisfied: true, violations: [], assessments: [] }
     }
 
+    const assessments = constraints.map((constraint) => ({
+      constraint: constraint.id,
+      status: 'unknown' as const,
+      reason: `No evaluator is configured for constraint: ${constraint.description}`,
+    }))
     return {
       satisfied: false,
-      violations: constraints.map(
-        (constraint) => `No evaluator is configured for constraint: ${constraint.description}`,
-      ),
+      violations: [],
+      assessments,
     }
   }
 }
@@ -103,6 +111,28 @@ export class Agent {
         state = state.recordPlan(plan)
 
         if (plan.decision === 'complete') {
+          let evaluation
+          try {
+            evaluation = await this.waitUntilDeadline(
+              Promise.resolve(this.constraintEvaluator.evaluate(
+                state.goal,
+                state.observations,
+                undefined,
+                state.planningHistory,
+              )),
+              deadline,
+              'constraint evaluation',
+            )
+          } catch (error) {
+            return state.fail(`Constraint evaluation failed: ${this.errorMessage(error)}`)
+          }
+          state = state.recordPlanningConstraintEvaluation(evaluation)
+          if (!evaluation.satisfied) {
+            const details = this.constraintFailureDetails(evaluation)
+            if (state.replanCount >= this.maxReplans) return state.fail(details)
+            state = this.replanner.replan(state, details)
+            continue
+          }
           return state.completeMission(plan.finalResult)
         }
 
@@ -155,7 +185,12 @@ export class Agent {
       let evaluation
       try {
         evaluation = await this.waitUntilDeadline(
-          Promise.resolve(this.constraintEvaluator.evaluate(state.goal, state.observations)),
+          Promise.resolve(this.constraintEvaluator.evaluate(
+            state.goal,
+            state.observations,
+            state.currentStep,
+            state.planningHistory,
+          )),
           deadline,
           'constraint evaluation',
         )
@@ -167,7 +202,7 @@ export class Agent {
       if (!result.ok || !evaluation.satisfied) {
         const reason = !result.ok
           ? `Tool ${result.toolId} failed: ${result.error}`
-          : `Constraints were not satisfied: ${evaluation.violations.join('; ')}`
+          : this.constraintFailureDetails(evaluation)
 
         if (state.replanCount >= this.maxReplans) {
           return state.fail(reason)
@@ -216,5 +251,13 @@ export class Agent {
 
   private errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error'
+  }
+
+  private constraintFailureDetails(evaluation: ConstraintEvaluation): string {
+    const assessmentDetails = evaluation.assessments
+      ?.filter((assessment) => assessment.status !== 'satisfied')
+      .map((assessment) => `${assessment.constraint} is ${assessment.status}: ${assessment.reason}`) ?? []
+    const details = [...new Set([...evaluation.violations, ...assessmentDetails])]
+    return `Constraints need resolution: ${details.join('; ') || 'insufficient evidence'}`
   }
 }

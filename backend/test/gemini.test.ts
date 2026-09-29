@@ -119,6 +119,26 @@ test('model response parsing converts a completion call to a completion decision
   assert.equal(plan.finalResult, 'Found an accessible venue within budget.')
 })
 
+test('model completion preserves explicit assumptions separately from its summary', () => {
+  const plan = parseGeminiFunctionCall(
+    {
+      name: 'mission_complete',
+      arguments: {
+        summary: 'A suitable venue was found.',
+        assumptions: ['Availability has not been confirmed.'],
+      },
+    },
+    goal.id,
+    [],
+    0,
+  )
+
+  assert.deepEqual(plan.finalResult, {
+    summary: 'A suitable venue was found.',
+    assumptions: ['Availability has not been confirmed.'],
+  })
+})
+
 test('planner sends the mission context and chooses the model-selected registered tool', async () => {
   const alternativeTool: typeof mockGoalTool = {
     ...mockGoalTool,
@@ -179,6 +199,7 @@ test('model can complete the mission after observing a tool result in mock mode'
   const registry = createRegistry(mockGoalTool)
   const agent = createGeminiAgent(registry, {
     planner: { apiKey: '', mockMode: true, fallbackMode: false, model: 'mock-model' },
+    agent: { constraintEvaluator: { evaluate: () => ({ satisfied: true, violations: [] }) } },
   })
   const state = await agent.run(goal)
 
