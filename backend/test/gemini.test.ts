@@ -78,6 +78,47 @@ test('model response parsing converts a registered function call to a plan step'
   assert.deepEqual(plan.missingInformation, ['Venue capacity'])
 })
 
+test('model response parsing converts a replan call to a replan decision', () => {
+  const plan = parseGeminiFunctionCall(
+    {
+      name: 'mission_replan',
+      arguments: {
+        reason: 'The venue capacity is still unknown.',
+        missing_information: ['Venue capacity'],
+      },
+    },
+    goal.id,
+    [],
+    1,
+  )
+
+  assert.equal(plan.goalId, goal.id)
+  assert.equal(plan.decision, 'replan')
+  assert.deepEqual(plan.steps, [])
+  assert.match(plan.rationale ?? '', /venue capacity/i)
+  assert.deepEqual(plan.missingInformation, ['Venue capacity'])
+})
+
+test('model response parsing converts a completion call to a completion decision', () => {
+  const plan = parseGeminiFunctionCall(
+    {
+      name: 'mission_complete',
+      arguments: {
+        summary: 'Found an accessible venue within budget.',
+        missing_information: [],
+      },
+    },
+    goal.id,
+    [],
+    1,
+  )
+
+  assert.equal(plan.goalId, goal.id)
+  assert.equal(plan.decision, 'complete')
+  assert.deepEqual(plan.steps, [])
+  assert.equal(plan.finalResult, 'Found an accessible venue within budget.')
+})
+
 test('planner sends the mission context and chooses the model-selected registered tool', async () => {
   const alternativeTool: typeof mockGoalTool = {
     ...mockGoalTool,
@@ -137,7 +178,7 @@ test('unknown and malformed model tool calls are rejected', () => {
 test('model can complete the mission after observing a tool result in mock mode', async () => {
   const registry = createRegistry(mockGoalTool)
   const agent = createGeminiAgent(registry, {
-    planner: { mockMode: true, fallbackMode: false, model: 'mock-model' },
+    planner: { apiKey: '', mockMode: true, fallbackMode: false, model: 'mock-model' },
   })
   const state = await agent.run(goal)
 
