@@ -34,12 +34,16 @@ export class DefaultConstraintEvaluator implements ConstraintEvaluator {
 
 export interface AgentOptions {
   maxReplans?: number
+  maxIterations?: number
+  timeoutMs?: number
   constraintEvaluator?: ConstraintEvaluator
   plannerDecidesCompletion?: boolean
 }
 
 export class Agent {
   private readonly maxReplans: number
+  private readonly maxIterations: number
+  private readonly timeoutMs: number
   private readonly constraintEvaluator: ConstraintEvaluator
   private readonly plannerDecidesCompletion: boolean
 
@@ -51,11 +55,19 @@ export class Agent {
     options: AgentOptions = {},
   ) {
     this.maxReplans = options.maxReplans ?? 3
+    this.maxIterations = options.maxIterations ?? 12
+    this.timeoutMs = options.timeoutMs ?? 120_000
     this.constraintEvaluator = options.constraintEvaluator ?? new DefaultConstraintEvaluator()
     this.plannerDecidesCompletion = options.plannerDecidesCompletion ?? false
 
     if (!Number.isInteger(this.maxReplans) || this.maxReplans < 0) {
       throw new Error('maxReplans must be a non-negative integer')
+    }
+    if (!Number.isInteger(this.maxIterations) || this.maxIterations < 1) {
+      throw new Error('maxIterations must be a positive integer')
+    }
+    if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1) {
+      throw new Error('timeoutMs must be a positive integer')
     }
   }
 
@@ -65,17 +77,30 @@ export class Agent {
     }
 
     let state = AgentState.start(goal)
+    let iterations = 0
+    const deadline = Date.now() + this.timeoutMs
 
     while (state.status !== 'completed' && state.status !== 'failed') {
       if (state.status === 'planning' || state.status === 'replanning') {
-        const plan = await this.planner.createPlan({
-          goal: state.goal,
-          tools: this.registry.list(),
-          observations: state.observations,
-          state: state.snapshot(),
-          excludedToolIds: state.excludedToolIds,
-          replanCount: state.replanCount,
-        })
+        let plan
+        try {
+          plan = await this.waitUntilDeadline(
+            this.planner.createPlan({
+              goal: state.goal,
+              tools: this.registry.list(),
+              observations: state.observations,
+              state: state.snapshot(),
+              excludedToolIds: state.excludedToolIds,
+              replanCount: state.replanCount,
+            }),
+            deadline,
+            'planning',
+          )
+        } catch (error) {
+          return state.fail(`Planning failed: ${this.errorMessage(error)}`)
+        }
+
+        state = state.recordPlan(plan)
 
         if (plan.decision === 'complete') {
           return state.completeMission(plan.finalResult)
@@ -100,17 +125,43 @@ export class Agent {
       if (!step) {
         return state.fail('The active plan has no current step.')
       }
+      if (iterations >= this.maxIterations) {
+        return state.fail(`Maximum tool execution iterations reached (${this.maxIterations}).`)
+      }
 
-      const result = await this.executor.execute(step, {
-        goal: state.goal,
-        observations: state.observations,
-      })
+      iterations += 1
+      let result
+      try {
+        result = await this.waitUntilDeadline(
+          this.executor.execute(step, {
+            goal: state.goal,
+            observations: state.observations,
+          }),
+          deadline,
+          'tool execution',
+        )
+      } catch (error) {
+        const reason = this.errorMessage(error)
+        state = state.recordExecution({
+          stepId: step.id,
+          toolId: step.toolId,
+          ok: false,
+          error: reason,
+        })
+        return state.fail(`Tool execution failed: ${reason}`)
+      }
       state = state.recordExecution(result)
 
-      const evaluation = await this.constraintEvaluator.evaluate(
-        state.goal,
-        state.observations,
-      )
+      let evaluation
+      try {
+        evaluation = await this.waitUntilDeadline(
+          Promise.resolve(this.constraintEvaluator.evaluate(state.goal, state.observations)),
+          deadline,
+          'constraint evaluation',
+        )
+      } catch (error) {
+        return state.fail(`Constraint evaluation failed: ${this.errorMessage(error)}`)
+      }
       state = state.recordConstraintEvaluation(evaluation)
 
       if (!result.ok || !evaluation.satisfied) {
@@ -140,5 +191,30 @@ export class Agent {
     }
 
     return state
+  }
+
+  private async waitUntilDeadline<T>(
+    operation: Promise<T>,
+    deadline: number,
+    activity: string,
+  ): Promise<T> {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error(`Mission timed out during ${activity}`)
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<T>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`Mission timed out during ${activity}`)), remaining)
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error'
   }
 }

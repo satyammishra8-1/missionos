@@ -12,6 +12,7 @@ interface AgentStateValues {
   status: AgentStatus
   plan?: AgentPlan
   planHistory: readonly AgentPlan[]
+  planningHistory: readonly AgentPlan[]
   stepIndex: number
   observations: readonly ToolExecutionResult[]
   constraintEvaluation?: ConstraintEvaluation
@@ -29,6 +30,7 @@ export class AgentState {
       goal,
       status: 'planning',
       planHistory: [],
+      planningHistory: [],
       stepIndex: 0,
       observations: [],
       excludedToolIds: [],
@@ -40,6 +42,7 @@ export class AgentState {
   get status(): AgentStatus { return this.values.status }
   get plan(): AgentPlan | undefined { return this.values.plan }
   get planHistory(): readonly AgentPlan[] { return this.values.planHistory }
+  get planningHistory(): readonly AgentPlan[] { return this.values.planningHistory }
   get stepIndex(): number { return this.values.stepIndex }
   get currentStep() { return this.values.plan?.steps[this.values.stepIndex] }
   get observations(): readonly ToolExecutionResult[] { return this.values.observations }
@@ -80,6 +83,14 @@ export class AgentState {
       stepIndex: 0,
       constraintEvaluation: undefined,
     })
+  }
+
+  recordPlan(plan: AgentPlan): AgentState {
+    this.assertStatus('planning', 'replanning')
+    if (plan.goalId !== this.goal.id) {
+      throw new Error('Cannot record a plan for a different goal')
+    }
+    return this.next({ plan, planningHistory: [...this.planningHistory, plan] })
   }
 
   recordExecution(result: ToolExecutionResult): AgentState {

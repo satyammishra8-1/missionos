@@ -58,6 +58,19 @@ Keep `GEMINI_API_KEY` in the backend environment only; do not use a `VITE_` vari
 
 Register tools with `ToolRegistry`, then create a model-backed agent with `createGeminiAgent(registry)` from `backend/src/services/gemini`. Each registered tool can provide an `inputSchema`; the model's selected function call is validated by that tool and executed only through the existing `ToolExecutor`. Gemini receives the mission, constraints, available tool descriptions and schemas, agent-state snapshot, prior observations, and replan history. The mock client selects a compatible tool and completes after observing its result.
 
+## Mission Execution
+
+Submit a goal and optional JSON constraints to `POST /api/missions`:
+
+```json
+{
+	"goal": "Plan an accessible weekend trip to Montreal",
+	"constraints": { "budget": 1200, "accessible": true }
+}
+```
+
+The Gemini planner dynamically selects registered search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. The response includes `missionId`, `status`, plan steps, tool calls, findings, source evidence, and `result`. Each mission is limited to 8 tool iterations, 3 replans, and 60 seconds by default. Constraints are passed to Gemini with the mission evidence; tool execution failures and explicit constraint evaluator violations trigger replanning.
+
 ## SerpApi Search Tools
 
 The backend provides a reusable SerpApi client and a Google Search tool that registers with the existing `ToolRegistry` and runs through `ToolExecutor`. Mock mode is enabled by default and works without an API key. To enable live searches, set the following in `backend/.env`:
@@ -74,6 +87,6 @@ Google Search accepts a query, optional location, and optional result count. Goo
 - Google Flights: departure, destination, departure date, optional return date, passengers, and travel class (`economy`, `premium_economy`, `business`, or `first`). Results include airlines, flight numbers, departure/arrival times, duration, stops, price, and a Google Flights link. A return date is included in the round-trip search.
 - Google Hotels: destination, check-in/check-out dates, guest count, and optional preference terms. Results include hotel name, available price/rating/review/location/amenities fields, and a hotel search link. Preferences are appended to the destination search query.
 
-The Maps radius is sent as twice the requested Google Maps viewport height, and result limits are applied locally. Mock mode is enabled by default and works without an API key. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
+The Maps radius is sent as twice the requested distance for Google Maps viewport height, and result limits are applied locally. Mock mode is enabled by default and works without an API key. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
 
 Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.
