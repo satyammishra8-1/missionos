@@ -25,7 +25,7 @@ function isValidDate(value: string): boolean {
 
 function parseInput(input: unknown): GoogleHotelsInput {
   if (!isRecord(input)) throw new Error('Google Hotels input must be an object')
-  const allowedFields = new Set(['destination', 'checkIn', 'checkOut', 'guests', 'preferences'])
+  const allowedFields = new Set(['destination', 'checkIn', 'checkOut', 'guests', 'preferences', 'currency'])
   if (Object.keys(input).some((key) => !allowedFields.has(key))) {
     throw new Error('Google Hotels input contains unsupported fields')
   }
@@ -61,6 +61,9 @@ function parseInput(input: unknown): GoogleHotelsInput {
       throw new Error(`Google Hotels preferences must be up to ${maximumPreferences} non-empty strings of at most ${maximumPreferenceLength} characters`)
     }
   }
+  if (input.currency !== undefined && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) {
+    throw new Error('Google Hotels currency must be a three-letter ISO currency code')
+  }
 
   return {
     destination: input.destination.trim(),
@@ -70,6 +73,7 @@ function parseInput(input: unknown): GoogleHotelsInput {
     ...(Array.isArray(input.preferences)
       ? { preferences: input.preferences.map((preference) => preference.trim()) }
       : {}),
+    ...(typeof input.currency === 'string' ? { currency: input.currency } : {}),
   }
 }
 
@@ -172,6 +176,7 @@ function buildSearchParameters(input: GoogleHotelsInput): SerpApiSearchParameter
     check_in_date: input.checkIn,
     check_out_date: input.checkOut,
     adults: input.guests,
+    ...(input.currency ? { currency: input.currency } : {}),
   }
 }
 
@@ -193,20 +198,35 @@ export function createGoogleHotelsTool(
           items: { type: 'string' },
           description: 'Optional search terms such as amenities or hotel features.',
         },
+        currency: { type: 'string', description: 'Optional three-letter currency code for price comparison.' },
       },
       required: ['destination', 'checkIn', 'checkOut', 'guests'],
       additionalProperties: false,
     },
     supports: (goal: MissionGoal) => goal.description.trim().length > 0,
-    createInput: ({ goal }) => ({
-      destination: goal.description,
-      checkIn: new Date().toISOString().slice(0, 10),
-      checkOut: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
-      guests: 1,
-    }),
+    createInput: ({ goal }) => {
+      const constraints = isRecord(goal.metadata?.missionConstraints)
+        ? goal.metadata.missionConstraints
+        : {}
+      const route = isRecord(constraints.route) ? constraints.route : {}
+      const dates = isRecord(constraints.date) ? constraints.date : {}
+      const budget = isRecord(constraints.budget) ? constraints.budget : {}
+      const explicitDates = isRecord(goal.metadata?.missionRequirements) &&
+        Array.isArray(goal.metadata.missionRequirements.explicitDates)
+        ? goal.metadata.missionRequirements.explicitDates.filter((value): value is string => typeof value === 'string')
+        : []
+      return {
+        destination: typeof route.destination === 'string' ? route.destination : goal.description,
+        checkIn: typeof dates.checkIn === 'string' ? dates.checkIn : explicitDates[0] ?? '',
+        checkOut: typeof dates.checkOut === 'string' ? dates.checkOut : explicitDates[1] ?? '',
+        guests: 1,
+        ...(typeof budget.currency === 'string' ? { currency: budget.currency } : {}),
+      }
+    },
     parseInput,
     execute: async (input) => ({
       destination: input.destination,
+      ...(input.currency ? { currency: input.currency } : {}),
       results: parseGoogleHotelsResponse(await client.search(buildSearchParameters(input)), input),
     }),
   }

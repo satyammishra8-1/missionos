@@ -1,20 +1,27 @@
 :root {
   font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
-  color: #252820;
-  background: #f5f4ef;
+  color: #192a26;
+  background: #f1f4f0;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  --paper: #fffefa;
-  --ink: #252820;
-  --muted: #77786f;
-  --line: #e4e2d9;
-  --green-dark: #326449;
-  --red-dark: #a34f43;
+  --canvas: #f1f4f0;
+  --surface: #ffffff;
+  --surface-soft: #f7f9f6;
+  --ink: #192a26;
+  --muted: #65736d;
+  --subtle: #85928c;
+  --line: #dce4de;
+  --line-strong: #c6d2ca;
+  --forest: #1e5a4c;
+  --forest-deep: #153f36;
+  --lime: #d5e9aa;
+  --coral: #c5654d;
+  --amber: #ad7130;
+  --danger: #ab4e42;
   --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  --display: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
 }
 
 * {
@@ -25,14 +32,33 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  background-color: var(--canvas);
+  background-image:
+    linear-gradient(rgba(39, 84, 67, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 84, 67, 0.025) 1px, transparent 1px);
+  background-size: 36px 36px;
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid rgba(30, 90, 76, 0.35);
+  outline-offset: 2px;
+}
+
 ::selection {
-  color: #fffefa;
-  background: #326449;
+  color: #ffffff;
+  background: var(--forest);
 }

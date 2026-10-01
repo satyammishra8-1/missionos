@@ -29,7 +29,7 @@ function isValidDate(value: string): boolean {
 function parseInput(input: unknown): GoogleFlightsInput {
   if (!isRecord(input)) throw new Error('Google Flights input must be an object')
   const allowedFields = new Set([
-    'departure', 'destination', 'departureDate', 'returnDate', 'passengers', 'travelClass',
+    'departure', 'destination', 'departureDate', 'returnDate', 'passengers', 'travelClass', 'currency',
   ])
   if (Object.keys(input).some((key) => !allowedFields.has(key))) {
     throw new Error('Google Flights input contains unsupported fields')
@@ -64,6 +64,9 @@ function parseInput(input: unknown): GoogleFlightsInput {
   ) {
     throw new Error('Google Flights travelClass must be economy, premium_economy, business, or first')
   }
+  if (input.currency !== undefined && (typeof input.currency !== 'string' || !/^[A-Z]{3}$/.test(input.currency))) {
+    throw new Error('Google Flights currency must be a three-letter ISO currency code')
+  }
 
   return {
     departure: input.departure.trim(),
@@ -72,6 +75,7 @@ function parseInput(input: unknown): GoogleFlightsInput {
     ...(typeof input.returnDate === 'string' ? { returnDate: input.returnDate } : {}),
     passengers: input.passengers as number,
     travelClass: input.travelClass as GoogleFlightsInput['travelClass'],
+    ...(typeof input.currency === 'string' ? { currency: input.currency } : {}),
   }
 }
 
@@ -193,6 +197,7 @@ function buildSearchParameters(input: GoogleFlightsInput): SerpApiSearchParamete
     type: input.returnDate ? 1 : 2,
     adults: input.passengers,
     travel_class: travelClasses[input.travelClass],
+    ...(input.currency ? { currency: input.currency } : {}),
     ...(input.returnDate ? { return_date: input.returnDate } : {}),
   }
 }
@@ -216,22 +221,42 @@ export function createGoogleFlightsTool(
           enum: Object.keys(travelClasses),
           description: 'Economy, premium economy, business, or first class.',
         },
+        currency: { type: 'string', description: 'Optional three-letter currency code for fare comparison.' },
       },
       required: ['departure', 'destination', 'departureDate', 'passengers', 'travelClass'],
       additionalProperties: false,
     },
     supports: (goal: MissionGoal) => goal.description.trim().length > 0,
-    createInput: ({ goal }) => ({
-      departure: goal.description,
-      destination: goal.description,
-      departureDate: new Date().toISOString().slice(0, 10),
-      passengers: 1,
-      travelClass: 'economy',
-    }),
+    createInput: ({ goal }) => {
+      const constraints = isRecord(goal.metadata?.missionConstraints)
+        ? goal.metadata.missionConstraints
+        : {}
+      const route = isRecord(constraints.route) ? constraints.route : {}
+      const dates = isRecord(constraints.date) ? constraints.date : {}
+      const budget = isRecord(constraints.budget) ? constraints.budget : {}
+      const requirements = isRecord(goal.metadata?.missionRequirements)
+        ? goal.metadata.missionRequirements
+        : {}
+      const explicitDates = Array.isArray(requirements.explicitDates)
+        ? requirements.explicitDates.filter((value): value is string => typeof value === 'string')
+        : []
+      return {
+        departure: typeof route.origin === 'string' ? route.origin : goal.description,
+        destination: typeof route.destination === 'string' ? route.destination : goal.description,
+        departureDate: typeof dates.departureDate === 'string' ? dates.departureDate : explicitDates[0] ?? '',
+        ...(typeof dates.returnDate === 'string'
+          ? { returnDate: dates.returnDate }
+          : explicitDates[1] ? { returnDate: explicitDates[1] } : {}),
+        passengers: typeof requirements.passengers === 'number' ? requirements.passengers : 1,
+        travelClass: 'economy',
+        ...(typeof budget.currency === 'string' ? { currency: budget.currency } : {}),
+      }
+    },
     parseInput,
     execute: async (input) => ({
       departure: input.departure,
       destination: input.destination,
+      ...(input.currency ? { currency: input.currency } : {}),
       results: parseGoogleFlightsResponse(await client.search(buildSearchParameters(input)), input),
     }),
   }

@@ -57,6 +57,7 @@ export interface GoogleFlightsInput {
   returnDate?: string
   passengers: number
   travelClass: GoogleFlightsTravelClass
+  currency?: string
 }
 
 export interface GoogleFlightResult {
@@ -73,6 +74,7 @@ export interface GoogleFlightResult {
 export interface GoogleFlightsOutput {
   departure: string
   destination: string
+  currency?: string
   results: readonly GoogleFlightResult[]
 }
 
@@ -82,6 +84,7 @@ export interface GoogleHotelsInput {
   checkOut: string
   guests: number
   preferences?: readonly string[]
+  currency?: string
 }
 
 export interface GoogleHotelPrice {
@@ -101,5 +104,6 @@ export interface GoogleHotelResult {
 
 export interface GoogleHotelsOutput {
   destination: string
+  currency?: string
   results: readonly GoogleHotelResult[]
 }

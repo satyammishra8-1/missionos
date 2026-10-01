@@ -69,13 +69,13 @@ Submit a goal and optional JSON constraints to `POST /api/missions`:
 }
 ```
 
-The Gemini planner dynamically selects registered search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. The response includes `missionId`, `status`, plan steps, tool calls, findings, source evidence, and a `result` separating `verifiedFacts`, `assumptions`, and `missingInformation`. Each mission is limited to 8 tool iterations, 3 replans, and 60 seconds by default.
+The Gemini planner dynamically selects registered search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. A completed mission requires useful results from every tool capability requested in the goal and satisfied deterministic constraints. The response includes `missionId`, `status`, plan steps, tool calls, replans, findings, source evidence, and a `result` separating `verifiedFacts`, `assumptions`, and `missingInformation`. Each mission is limited to 12 tool iterations, 8 replans, and 60 seconds by default. Missions without both `GEMINI_API_KEY` and `SERPAPI_API_KEY` return a configuration failure; mock results are not accepted as real mission completion.
 
-Constraints are supplied as a JSON object. The deterministic evaluator supports `budget` as a number or `{ "max": number }`, `date` as an ISO date or date-field object, `location` as a string or list, `time` as `HH:mm` or `{ "start": "HH:mm", "end": "HH:mm" }`, and `requiredPreferences` as a string list. Each is reported as `satisfied`, `violated`, or `unknown`; violations and unknowns block completion and cause replanning. Constraints with insufficient evidence remain `unknown`, rather than being treated as verified. Budget currently checks observed option prices individually; it does not convert currencies or calculate a combined trip total.
+Constraints are supplied as a JSON object and budget, duration, route, and requested tool capabilities are also extracted from the goal. The deterministic evaluator supports `budget` as a number or `{ "max": number, "currency": "INR", "scope": "total" }`, `date` as an ISO date or date-field object, `durationDays`, `route` with origin/destination, `location`, `time`, `requiredPreferences`, and `requiredTools`. Each is reported as `satisfied`, `violated`, or `unknown`; violations and unknowns block completion and trigger replanning. Missing exact dates are requested rather than invented. A total budget remains unknown unless evidence contains a comparable aggregate trip cost; individual flight and hotel prices are not assumed to be a verified total.
 
 ## SerpApi Search Tools
 
-The backend provides a reusable SerpApi client and a Google Search tool that registers with the existing `ToolRegistry` and runs through `ToolExecutor`. Mock mode is enabled by default and works without an API key. To enable live searches, set the following in `backend/.env`:
+The backend provides a reusable SerpApi client and registered Google Search, Maps/Places, Flights, and Hotels tools. Isolated tool tests can explicitly use a mock client, but production mission execution requires both Gemini and SerpApi API keys and will not complete using mock results. To enable live searches, set the following in `backend/.env`:
 
 ```dotenv
 SERPAPI_API_KEY=your-key
@@ -89,6 +89,6 @@ Google Search accepts a query, optional location, and optional result count. Goo
 - Google Flights: departure, destination, departure date, optional return date, passengers, and travel class (`economy`, `premium_economy`, `business`, or `first`). Results include airlines, flight numbers, departure/arrival times, duration, stops, price, and a Google Flights link. A return date is included in the round-trip search.
 - Google Hotels: destination, check-in/check-out dates, guest count, and optional preference terms. Results include hotel name, available price/rating/review/location/amenities fields, and a hotel search link. Preferences are appended to the destination search query.
 
-The Maps radius is sent as twice the requested distance for Google Maps viewport height, and result limits are applied locally. Mock mode is enabled by default and works without an API key. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
+The Maps radius is sent as twice the requested distance for Google Maps viewport height, and result limits are applied locally. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
 
 Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.

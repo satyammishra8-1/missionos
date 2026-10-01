@@ -19,20 +19,7 @@ export class MockSerpApiClient implements SerpApiClientContract {
     }
 
     if (parameters.engine === 'google_flights') {
-      return {
-        best_flights: [{
-          flights: [{
-            airline: 'Mock Air',
-            flight_number: 'MA 101',
-            departure_airport: { time: `${parameters.outbound_date} 09:00` },
-            arrival_airport: { time: `${parameters.outbound_date} 12:00` },
-            duration: 180,
-          }],
-          total_duration: 180,
-          layovers: [],
-          price: 250,
-        }],
-      }
+      return { best_flights: [], other_flights: [] }
     }
 
     if (parameters.engine === 'google_hotels') {

@@ -26,8 +26,12 @@ export function createMissionRouter(
       response.status(200).json({
         missionId: mission.missionId,
         status: mission.status,
+        error: mission.failures[0]
+          ? { code: mission.failures[0].source, message: mission.failures[0].message }
+          : null,
         plan: mission.planHistory.flatMap((plan) => plan.steps),
         toolCalls: mission.toolCalls,
+        replans: mission.replans,
         findings: mission.completedTasks,
         evidence: mission.evidence,
         result: {

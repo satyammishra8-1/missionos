@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint src test",
-    "test": "tsx --test test/agent.test.ts test/gemini.test.ts test/serpapi.test.ts test/mission.test.ts test/constraints.test.ts"
+    "test": "tsx --test --test-concurrency=1 test/agent.test.ts test/gemini.test.ts test/serpapi.test.ts test/mission.test.ts test/constraints.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",

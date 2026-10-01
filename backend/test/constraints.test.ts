@@ -50,6 +50,26 @@ test('budget is unknown when no comparable price evidence exists', () => {
   assert.equal(result.satisfied, false)
 })
 
+test('currency-specific budget remains unknown when price currency does not match', () => {
+  const result = evaluate(
+    { budget: { max: 8000, currency: 'INR' } },
+    [observation({ currency: 'USD', flights: [{ price: 90 }] })],
+  )
+  assert.equal(status(result, 'budget'), 'unknown')
+})
+
+test('total budget remains unknown when only separate option prices are available', () => {
+  const result = evaluate(
+    { budget: { max: 8000, currency: 'INR', scope: 'total' } },
+    [
+      observation({ currency: 'INR', flights: [{ price: 5000 }] }),
+      observation({ currency: 'INR', hotels: [{ price: 2500 }] }),
+    ],
+  )
+  assert.equal(status(result, 'budget'), 'unknown')
+  assert.match(result.assessments?.[0]?.reason ?? '', /no evidence-backed total trip cost/)
+})
+
 test('date is satisfied or violated by exact planned stay dates', () => {
   const expected = { checkIn: '2027-06-10', checkOut: '2027-06-15' }
   const matching = evaluate({ date: expected }, [], expected)
@@ -75,6 +95,30 @@ test('location is satisfied or violated by the planned search location', () => {
 test('location is unknown when location evidence is absent', () => {
   const result = evaluate({ location: 'Reykjavik' })
   assert.equal(status(result, 'location'), 'unknown')
+})
+
+test('route is satisfied only by observed matching flight search output', () => {
+  const matching = evaluate(
+    { route: { origin: 'Bengaluru', destination: 'Hyderabad' } },
+    [{ stepId: 'flight-1', toolId: 'google-flights', ok: true, output: {
+      departure: 'Bengaluru',
+      destination: 'Hyderabad',
+      results: [{ flightNumber: 'AB 12' }],
+    } }],
+  )
+  const mismatched = evaluate(
+    { route: { origin: 'Bengaluru', destination: 'Hyderabad' } },
+    [{ stepId: 'flight-1', toolId: 'google-flights', ok: true, output: {
+      departure: 'Delhi',
+      destination: 'Hyderabad',
+      results: [{ flightNumber: 'AB 12' }],
+    } }],
+  )
+  const missing = evaluate({ route: { origin: 'Bengaluru', destination: 'Hyderabad' } })
+
+  assert.equal(status(matching, 'route'), 'satisfied')
+  assert.equal(status(mismatched, 'route'), 'violated')
+  assert.equal(status(missing, 'route'), 'unknown')
 })
 
 test('time is satisfied or violated against an observed time range', () => {
@@ -108,6 +152,15 @@ test('required preferences are satisfied only when every preference is evidenced
 test('required preferences are unknown when amenities are absent', () => {
   const result = evaluate({ requiredPreferences: ['pool'] }, [observation({ properties: [{ name: 'Hotel' }] })])
   assert.equal(status(result, 'requiredPreferences'), 'unknown')
+})
+
+test('required tool coverage is unknown until every requested tool returns useful output', () => {
+  const result = evaluate(
+    { requiredTools: ['google-flights', 'google-hotels'] },
+    [{ stepId: 'flight-1', toolId: 'google-flights', ok: true, output: { results: [{ flightNumber: 'AB 12' }] } }],
+  )
+  assert.equal(status(result, 'requiredTools'), 'unknown')
+  assert.equal(result.satisfied, false)
 })
 
 test('unsupported constraints remain explicitly unknown', () => {

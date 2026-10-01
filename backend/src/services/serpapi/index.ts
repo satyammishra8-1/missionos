@@ -16,8 +16,8 @@ export interface SerpApiOptions {
 }
 
 export function createSerpApiClient(options: SerpApiOptions = {}): SerpApiClientContract {
-  const mockMode = options.mockMode ?? environment.serpApiMockMode
   const apiKey = options.apiKey ?? environment.serpApiApiKey
+  const mockMode = options.mockMode ?? (environment.serpApiMockMode && !apiKey)
 
   if (mockMode) return new MockSerpApiClient()
   if (!apiKey?.trim()) {

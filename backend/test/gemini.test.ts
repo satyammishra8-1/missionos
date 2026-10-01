@@ -166,6 +166,33 @@ test('planner sends the mission context and chooses the model-selected registere
   assert.equal(client.lastRequest?.functions[3]?.name, 'mission_tool_1')
 })
 
+test('planner includes prior tool observations when deciding the next action', async () => {
+  const registry = createRegistry(mockGoalTool)
+  const tool = registry.get(mockGoalTool.id)
+  assert.ok(tool)
+  const client = new FixedFunctionCallingClient({
+    name: 'mission_complete',
+    arguments: { summary: 'The previous result answers the goal.' },
+  })
+  const baseRequest = createRequest([tool], 1)
+  const priorObservation = {
+    stepId: 'first-search',
+    toolId: mockGoalTool.id,
+    ok: true,
+    output: { acknowledged: true, goal: goal.description },
+  }
+  const request = {
+    ...baseRequest,
+    observations: [priorObservation],
+    state: { ...baseRequest.state, observations: [priorObservation] },
+  }
+
+  await new GeminiPlannerStrategy(client, 'mock-model').createPlan(request)
+
+  assert.deepEqual(client.lastRequest?.context.previousObservations, [priorObservation])
+  assert.deepEqual(client.lastRequest?.context.agentState.observations, [priorObservation])
+})
+
 test('unknown and malformed model tool calls are rejected', () => {
   const registry = createRegistry(mockGoalTool)
   const tool = registry.get(mockGoalTool.id)
@@ -247,6 +274,6 @@ test('model failure falls back to the capability planner', async () => {
   const plan = await strategy.createPlan(createRequest(registry.list()))
 
   assert.equal(plan.steps[0]?.toolId, mockGoalTool.id)
-  assert.equal(plan.evaluateAfterExecution, false)
+  assert.equal(plan.evaluateAfterExecution, true)
   assert.match(plan.rationale ?? '', /fallback/)
 })

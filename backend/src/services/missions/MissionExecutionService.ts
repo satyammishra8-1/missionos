@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { Agent, type AgentOptions, type ConstraintEvaluator } from '../../agent/Agent.js'
 import { AgentState } from '../../agent/AgentState.js'
-import { Planner, type PlanningStrategy } from '../../agent/Planner.js'
+import { CapabilityPlanningStrategy, Planner, type PlanningStrategy } from '../../agent/Planner.js'
 import { ToolRegistry } from '../../agent/ToolRegistry.js'
+import { environment } from '../../config/environment.js'
 import type {
   AgentPlan,
   ConstraintAssessment,
@@ -11,10 +12,12 @@ import type {
   ToolExecutionResult,
 } from '../../agent/types.js'
 import {
-  createGeminiAgent,
-  type GeminiAgentFactoryOptions,
+  createGeminiPlanningStrategy,
+  type GeminiPlannerOptions,
 } from '../gemini/index.js'
+import { FallbackPlanningStrategy } from '../gemini/GeminiPlannerStrategy.js'
 import { MissionConstraintEvaluator } from './MissionConstraintEvaluator.js'
+import { extractMissionRequirements } from './MissionRequirementExtractor.js'
 import { registerSerpApiTools, type SerpApiOptions } from '../serpapi/index.js'
 
 const maximumGoalLength = 4_000
@@ -43,7 +46,7 @@ export interface MissionToolCall {
 }
 
 export interface MissionFailure {
-  source: 'tool' | 'planner' | 'constraint' | 'mission'
+  source: 'configuration' | 'tool' | 'planner' | 'constraint' | 'mission'
   message: string
   stepId?: string
   toolId?: string
@@ -75,7 +78,7 @@ export interface MissionState {
   missionId: string
   goal: string
   constraints: Readonly<Record<string, unknown>>
-  status: AgentState['status']
+  status: AgentState['status'] | 'needs_information'
   currentPlan?: AgentPlan
   planHistory: readonly AgentPlan[]
   completedTasks: readonly {
@@ -100,7 +103,7 @@ export interface MissionState {
 
 export interface MissionExecutionOptions {
   serpApi?: SerpApiOptions
-  gemini?: GeminiAgentFactoryOptions['planner']
+  gemini?: GeminiPlannerOptions
   agent?: AgentOptions
   plannerStrategy?: PlanningStrategy
   constraintEvaluator?: ConstraintEvaluator
@@ -144,6 +147,16 @@ export function validateMissionRequest(value: unknown): MissionRequest {
   }
 
   return { goal: value.goal.trim(), constraints }
+}
+
+export function missingMissionApiKeys(configuration: {
+  geminiApiKey?: string
+  serpApiApiKey?: string
+}): string[] {
+  const missing: string[] = []
+  if (!configuration.geminiApiKey?.trim()) missing.push('GEMINI_API_KEY')
+  if (!configuration.serpApiApiKey?.trim()) missing.push('SERPAPI_API_KEY')
+  return missing
 }
 
 function describeConstraints(
@@ -240,8 +253,9 @@ function buildMissionState(
     }]
   })
   if (state.failureReason && !failures.some((failure) => state.failureReason?.includes(failure.message))) {
-    const source: MissionFailure['source'] = state.failureReason.startsWith('Planning failed:')
-      ? 'planner'
+    const source: MissionFailure['source'] = state.failureReason.startsWith('Configuration required:')
+      ? 'configuration'
+      : state.failureReason.startsWith('Planning failed:') ? 'planner'
       : state.failureReason.startsWith('Constraint evaluation failed:')
         ? 'constraint'
         : state.failureReason.startsWith('Constraints need resolution:') ? 'constraint'
@@ -270,12 +284,19 @@ function buildMissionState(
     .filter((item) => item.status === 'unknown')
     .map((item) => `${item.constraint}: ${item.reason}`)
   const missingInformation = [...new Set([...plannerMissingInformation, ...constraintMissingInformation])]
+  const hasUnknownConstraints = constraintAssessments.some((item) => item.status === 'unknown')
+  const plannerNeedsInformation = state.planningHistory.at(-1)?.decision === 'replan'
+  const status = state.status === 'failed' && (
+    hasUnknownConstraints || missingInformation.length > 0 || plannerNeedsInformation
+  )
+    ? 'needs_information'
+    : state.status
 
   return {
     missionId,
     goal: request.goal,
     constraints: request.constraints ?? {},
-    status: state.status,
+    status,
     ...(state.plan ? { currentPlan: state.plan } : {}),
     planHistory: state.planningHistory,
     completedTasks,
@@ -298,35 +319,83 @@ export class MissionExecutionService {
   constructor(private readonly options: MissionExecutionOptions = {}) {}
 
   async execute(rawRequest: unknown): Promise<MissionState> {
-    const request = validateMissionRequest(rawRequest)
+    let request = validateMissionRequest(rawRequest)
     const missionId = this.options.createMissionId?.() ?? randomUUID()
-    const goal: MissionGoal = {
+    let goal: MissionGoal = {
       id: missionId,
       description: request.goal,
       constraints: describeConstraints(request.constraints ?? {}),
       metadata: { missionConstraints: request.constraints ?? {} },
     }
     const registry = new ToolRegistry()
-    const initialState = AgentState.start(goal)
+    let initialState = AgentState.start(goal)
+
+    if (!this.options.plannerStrategy) {
+      const geminiApiKey = this.options.gemini?.apiKey ?? environment.geminiApiKey
+      const serpApiApiKey = this.options.serpApi?.apiKey ?? environment.serpApiApiKey
+      const missingKeys = missingMissionApiKeys({
+        geminiApiKey,
+        serpApiApiKey,
+      })
+      const forcedMockProviders = [
+        ...(this.options.gemini?.mockMode === true ? ['GEMINI_MOCK_MODE'] : []),
+        ...(this.options.serpApi?.mockMode === true ? ['SERPAPI_MOCK_MODE'] : []),
+      ]
+      if (missingKeys.length > 0 || forcedMockProviders.length > 0) {
+        const configurationProblems = [
+          ...(missingKeys.length ? [`missing ${missingKeys.join(' and ')}`] : []),
+          ...(forcedMockProviders.length ? [`disable ${forcedMockProviders.join(' and ')}`] : []),
+        ]
+        const state = initialState.fail(
+          `Configuration required: ${configurationProblems.join('; ')} for real mission execution.`,
+        )
+        return buildMissionState(missionId, request, goal, state)
+      }
+    }
 
     try {
       registerSerpApiTools(registry, this.options.serpApi)
       this.options.registerTools?.(registry)
 
+      const requirements = extractMissionRequirements(
+        request.goal,
+        request.constraints ?? {},
+        registry.list(),
+      )
+      request = { ...request, constraints: requirements.constraints }
+      goal = {
+        ...goal,
+        constraints: describeConstraints(requirements.constraints),
+        metadata: {
+          missionConstraints: requirements.constraints,
+          missionRequirements: requirements,
+        },
+      }
+      initialState = AgentState.start(goal)
+
       const agentOptions: AgentOptions = {
-        maxIterations: 8,
+        maxIterations: 12,
         timeoutMs: 60_000,
-        maxReplans: 3,
+        maxReplans: 8,
         plannerDecidesCompletion: true,
         constraintEvaluator: this.options.constraintEvaluator ?? new MissionConstraintEvaluator(),
         ...this.options.agent,
       }
-      const agent = this.options.plannerStrategy
-        ? new Agent(registry, new Planner(this.options.plannerStrategy), undefined, undefined, agentOptions)
-        : createGeminiAgent(registry, {
-            planner: this.options.gemini,
-            agent: agentOptions,
-          })
+      const primaryPlanningStrategy = this.options.plannerStrategy ?? createGeminiPlanningStrategy({
+        ...this.options.gemini,
+        fallbackMode: false,
+      })
+      const planningStrategy = new FallbackPlanningStrategy(
+        primaryPlanningStrategy,
+        new CapabilityPlanningStrategy(),
+      )
+      const agent = new Agent(
+        registry,
+        new Planner(new UserDateGuardStrategy(planningStrategy, requirements.explicitDates)),
+        undefined,
+        undefined,
+        agentOptions,
+      )
       const state = await agent.run(goal)
       return buildMissionState(missionId, request, goal, state)
     } catch (error) {
@@ -340,4 +409,38 @@ export function createMissionExecutionService(
   options: MissionExecutionOptions = {},
 ): MissionExecutionService {
   return new MissionExecutionService(options)
+}
+
+class UserDateGuardStrategy implements PlanningStrategy {
+  constructor(
+    private readonly strategy: PlanningStrategy,
+    private readonly explicitDates: readonly string[],
+  ) {}
+
+  async createPlan(request: Parameters<PlanningStrategy['createPlan']>[0]): Promise<AgentPlan> {
+    const plan = await this.strategy.createPlan(request)
+    if (plan.decision === 'replan' || plan.decision === 'complete') return plan
+
+    for (const step of plan.steps) {
+      const tool = request.tools.find((candidate) => candidate.id === step.toolId)
+      const requiredDateFields = tool?.inputSchema?.required?.filter((field) =>
+        /date|check.?in|check.?out/i.test(field),
+      ) ?? []
+      const input = step.input
+      if (!isRecord(input)) continue
+      const missingDates = requiredDateFields.filter((field) =>
+        typeof input[field] !== 'string' || !this.explicitDates.includes(input[field] as string),
+      )
+      if (missingDates.length > 0) {
+        return {
+          goalId: request.goal.id,
+          decision: 'replan',
+          steps: [],
+          rationale: 'Exact travel dates were not provided, so date-dependent searches cannot be verified safely.',
+          missingInformation: missingDates.map((field) => `Provide an exact date for ${field} before calling ${tool?.id ?? step.toolId}.`),
+        }
+      }
+    }
+    return plan
+  }
 }

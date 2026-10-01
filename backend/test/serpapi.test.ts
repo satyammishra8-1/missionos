@@ -12,6 +12,8 @@ import {
   parseGoogleMapsPlacesResponse,
   parseGoogleSearchResponse,
   registerSerpApiTools,
+  MockSerpApiClient,
+  SerpApiClient as RealSerpApiClient,
 } from '../src/services/serpapi/index.js'
 import type { SerpApiClient } from '../src/services/serpapi/types.js'
 
@@ -154,7 +156,7 @@ test('Google Flights calls the SerpApi engine through ToolExecutor', async () =>
     id: 'flight-step',
     toolId: tool.id,
     objective: 'Find flights',
-    input: { ...validFlightsInput, returnDate: '2027-04-20' },
+    input: { ...validFlightsInput, returnDate: '2027-04-20', currency: 'INR' },
   }, { goal, observations: [] })
 
   assert.equal(result.ok, true)
@@ -166,6 +168,7 @@ test('Google Flights calls the SerpApi engine through ToolExecutor', async () =>
     type: '1',
     adults: '2',
     travel_class: '3',
+    currency: 'INR',
     return_date: '2027-04-20',
     api_key: 'test-key',
   })
@@ -201,16 +204,7 @@ test('Google Flights mock mode works without an API key through Agent and ToolEx
   assert.deepEqual(state.finalResult, {
     departure: 'JFK',
     destination: 'LHR',
-    results: [{
-      airline: 'Mock Air',
-      flightNumber: 'MA 101',
-      departure: '2027-04-10 09:00',
-      arrival: '2027-04-10 12:00',
-      duration: 180,
-      stops: 0,
-      price: 250,
-      link: 'https://www.google.com/travel/flights?q=Flights+from+JFK+to+LHR+on+2027-04-10',
-    }],
+    results: [],
   })
 })
 
@@ -284,7 +278,7 @@ test('Google Hotels calls SerpApi with dates, guests, and preferences through To
     id: 'hotel-step',
     toolId: tool.id,
     objective: 'Find a hotel',
-    input: { ...validHotelsInput, preferences: ['free breakfast', 'pool'] },
+    input: { ...validHotelsInput, preferences: ['free breakfast', 'pool'], currency: 'INR' },
   }, { goal, observations: [] })
 
   assert.equal(result.ok, true)
@@ -294,6 +288,7 @@ test('Google Hotels calls SerpApi with dates, guests, and preferences through To
     check_in_date: '2027-06-10',
     check_out_date: '2027-06-15',
     adults: '2',
+    currency: 'INR',
     api_key: 'test-key',
   })
 })
@@ -626,4 +621,24 @@ test('Google Maps Places mock mode runs through Agent and ToolExecutor without a
       placeLink: 'https://maps.google.com/?cid=mock-place',
     }],
   })
+})
+
+test('a configured SerpApi key selects the real client even when mock mode is otherwise enabled', async () => {
+  let requestedUrl: URL | undefined
+  const client = createSerpApiClient({
+    apiKey: 'configured-test-key',
+    fetchImplementation: async (input) => {
+      requestedUrl = new URL(input.toString())
+      return new Response(JSON.stringify({ organic_results: [] }), { status: 200 })
+    },
+  })
+
+  assert.ok(client instanceof RealSerpApiClient)
+  await client.search({ engine: 'google', q: 'test query' })
+  assert.equal(requestedUrl?.searchParams.get('api_key'), 'configured-test-key')
+})
+
+test('explicit SerpApi mock mode selects the mock client', () => {
+  const client = createSerpApiClient({ apiKey: '', mockMode: true })
+  assert.ok(client instanceof MockSerpApiClient)
 })

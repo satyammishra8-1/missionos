@@ -22,8 +22,8 @@ export interface GeminiAgentFactoryOptions {
 export function createGeminiPlanningStrategy(
   options: GeminiPlannerOptions = {},
 ): PlanningStrategy {
-  const mockMode = options.mockMode ?? environment.geminiMockMode
   const apiKey = options.apiKey ?? environment.geminiApiKey
+  const mockMode = options.mockMode ?? (environment.geminiMockMode && !apiKey)
   const model = options.model ?? environment.geminiModel
 
   if (!mockMode && !apiKey) {

@@ -11,8 +11,11 @@ import { GeminiPlannerStrategy } from '../src/services/gemini/GeminiPlannerStrat
 import type { GeminiFunctionCallingClient } from '../src/services/gemini/types.js'
 import {
   createMissionExecutionService,
+  missingMissionApiKeys,
   type MissionExecutionService,
 } from '../src/services/missions/MissionExecutionService.js'
+import { extractMissionRequirements } from '../src/services/missions/MissionRequirementExtractor.js'
+import { registerSerpApiTools } from '../src/services/serpapi/index.js'
 
 const missionRequest = {
   goal: 'Find useful information for planning a city visit',
@@ -363,7 +366,7 @@ test('mission stops when the configured tool iteration limit is reached', async 
   assert.match(state.failures[0]?.message ?? '', /Maximum tool execution iterations/)
 })
 
-test('mission handles invalid Gemini tool calls without throwing', async () => {
+test('mission executes the capability fallback after an invalid Gemini tool call without false completion', async () => {
   const invalidCallClient: GeminiFunctionCallingClient = {
     generateFunctionCall: async () => ({
       name: 'mission_tool_not_registered',
@@ -375,18 +378,21 @@ test('mission handles invalid Gemini tool calls without throwing', async () => {
 
   const state = await service.execute({ goal: missionRequest.goal })
 
-  assert.equal(state.status, 'failed')
-  assert.match(state.failures[0]?.message ?? '', /unavailable function/)
+  assert.equal(state.status, 'needs_information')
+  assert.equal(state.toolCalls[0]?.toolId, 'google-search')
+  assert.equal(state.observations[0]?.ok, true)
+  assert.match(state.planHistory[0]?.rationale ?? '', /capability-based fallback/)
 })
 
-test('mission records graceful Gemini planner failures', async () => {
+test('mission executes the capability fallback after Gemini throws without false completion', async () => {
   const service = missionService({ createPlan: () => { throw new Error('Gemini unavailable') } })
 
   const state = await service.execute({ goal: missionRequest.goal })
 
-  assert.equal(state.status, 'failed')
-  assert.equal(state.failures[0]?.source, 'planner')
-  assert.match(state.failures[0]?.message ?? '', /Gemini unavailable/)
+  assert.equal(state.status, 'needs_information')
+  assert.equal(state.toolCalls[0]?.toolId, 'google-search')
+  assert.equal(state.observations[0]?.ok, true)
+  assert.match(state.planHistory[0]?.rationale ?? '', /capability-based fallback/)
 })
 
 test('mission handles planner timeout and returns a failed state', async () => {
@@ -450,8 +456,10 @@ test('POST /api/missions returns the mission response shape', async () => {
 
   assert.equal(payload.missionId, 'mission-test-id')
   assert.equal(payload.status, 'completed')
+  assert.equal(payload.error, null)
   assert.deepEqual(payload.plan, [])
   assert.deepEqual(payload.toolCalls, [])
+  assert.deepEqual(payload.replans, [])
   assert.deepEqual(payload.findings, [])
   assert.deepEqual(payload.evidence, [])
   assert.deepEqual(payload.result, {
@@ -479,4 +487,252 @@ test('POST /api/missions rejects malformed requests with 400', async () => {
   })
 
   assert.match(payload.error, /goal must be a non-empty string/)
+})
+
+test('POST /api/missions exposes an incomplete fallback result when Gemini returns no usable plan', async () => {
+  const service = missionService({
+    createPlan: () => { throw new Error('Gemini returned no function call') },
+  })
+
+  const payload = await withMissionServer(service, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/missions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ goal: 'Plan a trip' }),
+    })
+    assert.equal(response.status, 200)
+    return response.json() as Promise<Record<string, unknown>>
+  })
+
+  assert.equal(payload.status, 'needs_information')
+  assert.equal((payload.error as { code: string }).code, 'mission')
+  assert.match((payload.error as { message: string }).message, /Gemini returned no function call/)
+  assert.match((payload.error as { message: string }).message, /capability-based fallback/)
+  assert.ok(Array.isArray(payload.plan) && payload.plan.length > 0)
+  assert.ok(Array.isArray(payload.toolCalls) && payload.toolCalls.length > 0)
+})
+
+const travelMission = 'Plan my 2-day Hyderabad trip from Bengaluru for an interview. Keep the total budget under ₹8,000 and find flights, a hotel, and nearby food options.'
+
+test('travel mission extracts budget, duration, route, currency, and required tool capabilities', () => {
+  const registry = new ToolRegistry()
+  registry.register(createTool('google-search'))
+  registry.register(createTool('google-maps-places'))
+  registry.register(createTool('google-flights'))
+  registry.register(createTool('google-hotels'))
+
+  const extracted = extractMissionRequirements(travelMission, {}, registry.list())
+
+  assert.deepEqual(extracted.constraints.budget, { max: 8000, currency: 'INR', scope: 'total' })
+  assert.equal(extracted.constraints.durationDays, 2)
+  assert.deepEqual(extracted.constraints.route, { origin: 'Bengaluru', destination: 'Hyderabad' })
+  assert.deepEqual(extracted.requiredToolIds, [
+    'google-flights',
+    'google-hotels',
+    'google-maps-places',
+  ])
+  assert.deepEqual(extracted.explicitDates, [])
+})
+
+test('sample flight mission extracts its written date, route, and passenger count', () => {
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: '', mockMode: true })
+  const goal = 'Find me a flight ticket from Bengaluru to Hyderabad for 2 people on October 10, 2026, under ₹8,000 total. Find the cheapest suitable option and provide the booking link.'
+  const extracted = extractMissionRequirements(goal, {}, registry.list())
+  const missionGoal = {
+    id: 'sample-flight',
+    description: goal,
+    metadata: {
+      missionConstraints: extracted.constraints,
+      missionRequirements: extracted,
+    },
+  }
+  const flightTool = registry.get('google-flights')
+  assert.ok(flightTool)
+
+  assert.deepEqual(extracted.constraints.route, { origin: 'Bengaluru', destination: 'Hyderabad' })
+  assert.deepEqual(extracted.explicitDates, ['2026-10-10'])
+  assert.equal(extracted.passengers, 2)
+  assert.deepEqual(flightTool.createInput({ goal: missionGoal, observations: [] }), {
+    departure: 'Bengaluru',
+    destination: 'Hyderabad',
+    departureDate: '2026-10-10',
+    passengers: 2,
+    travelClass: 'economy',
+    currency: 'INR',
+  })
+})
+
+test('sample flight mission falls back from Gemini and executes through constraint evaluation', async () => {
+  const goal = 'Find me a flight ticket from Bengaluru to Hyderabad for 2 people on October 10, 2026, under ₹8,000 total. Find the cheapest suitable option and provide the booking link.'
+  const service = createMissionExecutionService({
+    serpApi: {
+      apiKey: '',
+      mockMode: true,
+      client: {
+        search: async () => ({
+          best_flights: [{
+            flights: [{
+              airline: 'Fixture Airline',
+              flight_number: 'FX 100',
+              departure_airport: { time: '2026-10-10 09:00' },
+              arrival_airport: { time: '2026-10-10 12:00' },
+              duration: 180,
+            }],
+            total_duration: 180,
+            layovers: [],
+            price: 6000,
+            link: 'https://example.test/fixture-flight',
+          }],
+        }),
+      },
+    },
+    plannerStrategy: { createPlan: () => { throw new Error('Gemini returned no valid function call') } },
+    createMissionId: () => 'sample-flight-fallback',
+  })
+
+  const state = await service.execute({ goal })
+
+  assert.equal(state.status, 'completed', JSON.stringify({ failures: state.failures, constraints: state.constraintAssessments }))
+  assert.equal(state.toolCalls.length, 1)
+  assert.equal(state.toolCalls[0]?.toolId, 'google-flights')
+  assert.deepEqual(state.toolCalls[0]?.input, {
+    departure: 'Bengaluru',
+    destination: 'Hyderabad',
+    departureDate: '2026-10-10',
+    passengers: 2,
+    travelClass: 'economy',
+    currency: 'INR',
+  })
+  assert.equal(state.observations.length, 1)
+  assert.ok(state.constraintHistory.length > 0)
+  assert.equal(state.evidence[0]?.url, 'https://example.test/fixture-flight')
+  assert.match(String(state.finalResult), /completed/i)
+})
+
+test('agent selects every requested tool across iterations and does not falsely complete without dates and total cost', async () => {
+  const travelGoal = `${travelMission} Travel dates: 2026-10-10 to 2026-10-11.`
+  const planner: PlanningStrategy = {
+    createPlan: (request) => {
+      const metadata = request.goal.metadata?.missionRequirements
+      const requiredToolIds = isRecordForTest(metadata) && Array.isArray(metadata.requiredToolIds)
+        ? metadata.requiredToolIds.filter((item): item is string => typeof item === 'string')
+        : []
+      const completedToolIds = new Set(request.observations.filter((item) => item.ok).map((item) => item.toolId))
+      const nextToolId = requiredToolIds.find((toolId) => !completedToolIds.has(toolId))
+      if (nextToolId) {
+        const stepId = `travel-${request.observations.length + 1}`
+        const inputs: Record<string, unknown> = {
+          'google-flights': {
+            departure: 'Bengaluru',
+            destination: 'Hyderabad',
+            departureDate: '2026-10-10',
+            returnDate: '2026-10-11',
+            passengers: 1,
+            travelClass: 'economy',
+            currency: 'INR',
+          },
+          'google-hotels': {
+            destination: 'Hyderabad',
+            checkIn: '2026-10-10',
+            checkOut: '2026-10-11',
+            guests: 1,
+            currency: 'INR',
+          },
+          'google-maps-places': { query: 'nearby food options', location: 'Hyderabad' },
+        }
+        return {
+          goalId: request.goal.id,
+          steps: [{
+            id: stepId,
+            toolId: nextToolId,
+            objective: `Find ${nextToolId}`,
+            input: inputs[nextToolId],
+          }],
+        }
+      }
+      return { goalId: request.goal.id, decision: 'complete', steps: [], finalResult: 'Plan ready' }
+    },
+  }
+  const service = missionService(planner, {
+    agent: { maxReplans: 4 },
+  })
+
+  const state = await service.execute({ goal: travelGoal })
+
+  assert.notEqual(state.status, 'completed')
+  assert.equal(state.status, 'needs_information', JSON.stringify({
+    failures: state.failures,
+    replans: state.replans,
+    constraints: state.constraintAssessments,
+    missingInformation: state.missingInformation,
+    toolCalls: state.toolCalls,
+  }))
+  assert.deepEqual(new Set(state.toolCalls.map((call) => call.toolId)), new Set([
+    'google-flights',
+    'google-hotels',
+    'google-maps-places',
+  ]))
+  assert.ok(state.missingInformation.some((item) => /total trip cost/i.test(item)))
+  const assessments = Object.fromEntries(
+    state.constraintAssessments.map((item) => [item.constraint, item.status]),
+  )
+  assert.equal(assessments.route, 'satisfied', JSON.stringify(assessments))
+  assert.equal(assessments.durationDays, 'satisfied', JSON.stringify(assessments))
+  assert.equal(assessments.date, 'satisfied', JSON.stringify(assessments))
+  assert.equal(assessments.requiredTools, 'unknown', JSON.stringify(assessments))
+  assert.equal(assessments.budget, 'unknown')
+})
+
+test('date-dependent travel calls are not executed with invented dates', async () => {
+  const planner: PlanningStrategy = {
+    createPlan: (request) => {
+      const metadata = request.goal.metadata?.missionRequirements
+      const requiredToolIds = isRecordForTest(metadata) && Array.isArray(metadata.requiredToolIds)
+        ? metadata.requiredToolIds.filter((item): item is string => typeof item === 'string')
+        : []
+      const flightToolId = requiredToolIds.find((toolId) => /flight/i.test(toolId))
+      if (!flightToolId) return { goalId: request.goal.id, decision: 'complete', steps: [], finalResult: 'No flight requested' }
+      return {
+        goalId: request.goal.id,
+        steps: [{
+          id: `undated-flight-${request.replanCount}`,
+          toolId: flightToolId,
+          objective: 'Search flights',
+          input: {
+            departure: 'Bengaluru',
+            destination: 'Hyderabad',
+            departureDate: '2026-10-10',
+            returnDate: '2026-10-11',
+            passengers: 1,
+            travelClass: 'economy',
+            currency: 'INR',
+          },
+        }],
+      }
+    },
+  }
+  const state = await missionService(planner).execute({ goal: travelMission })
+
+  assert.equal(state.status, 'needs_information')
+  assert.equal(state.observations.length, 0)
+  assert.ok(state.missingInformation.some((item) => /exact date/i.test(item)))
+})
+
+function isRecordForTest(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+test('production mission execution reports missing API keys instead of using successful mocks', async () => {
+  assert.deepEqual(missingMissionApiKeys({}), ['GEMINI_API_KEY', 'SERPAPI_API_KEY'])
+  const state = await createMissionExecutionService({
+    createMissionId: () => 'configuration-mission',
+    gemini: { apiKey: '', mockMode: true },
+    serpApi: { apiKey: '', mockMode: true },
+  }).execute({ goal: travelMission })
+
+  assert.equal(state.status, 'failed')
+  assert.equal(state.toolCalls.length, 0)
+  assert.equal(state.failures[0]?.source, 'configuration')
+  assert.match(state.failures[0]?.message ?? '', /GEMINI_API_KEY and SERPAPI_API_KEY/)
 })
