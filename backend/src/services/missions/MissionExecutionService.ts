@@ -78,7 +78,7 @@ export interface MissionState {
   missionId: string
   goal: string
   constraints: Readonly<Record<string, unknown>>
-  status: AgentState['status'] | 'needs_information'
+  status: AgentState['status'] | 'needs_information' | 'no_match'
   currentPlan?: AgentPlan
   planHistory: readonly AgentPlan[]
   completedTasks: readonly {
@@ -212,6 +212,105 @@ function collectEvidence(
   for (const item of Object.values(value)) collectEvidence(item, stepId, toolId, evidence)
 }
 
+interface PricedOption {
+  amount: number
+  currency?: string
+  toolId: string
+  data: Record<string, unknown>
+}
+
+function collectPricedOptions(
+  value: unknown,
+  toolId: string,
+  inheritedCurrency: string | undefined,
+  options: PricedOption[],
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectPricedOptions(item, toolId, inheritedCurrency, options)
+    return
+  }
+  if (!isRecord(value)) return
+
+  const currency = typeof value.currency === 'string' ? value.currency : inheritedCurrency
+  const priceValue = value.price ?? value.total_price ?? value.total_cost ?? value.amount
+  const amount = typeof priceValue === 'number'
+    ? priceValue
+    : typeof priceValue === 'string'
+      ? Number(priceValue.replace(/[^\d.]/g, ''))
+      : Number.NaN
+  if (Number.isFinite(amount) && amount >= 0) {
+    options.push({ amount, ...(currency ? { currency } : {}), toolId, data: value })
+  }
+
+  for (const [key, item] of Object.entries(value)) {
+    if (!['price', 'total_price', 'total_cost', 'amount'].includes(key)) {
+      collectPricedOptions(item, toolId, currency, options)
+    }
+  }
+}
+
+function noMatchResult(
+  goal: MissionGoal,
+  observations: readonly ToolExecutionResult[],
+  assessment: ConstraintAssessment,
+): Record<string, unknown> {
+  const constraints = goal.metadata?.missionConstraints
+  const constraintValue = isRecord(constraints) ? constraints[assessment.constraint] : undefined
+  const budget = assessment.constraint.toLowerCase() === 'budget' && isRecord(constraintValue)
+    ? constraintValue
+    : undefined
+  const expectedCurrency = typeof budget?.currency === 'string' ? budget.currency.toUpperCase() : undefined
+  const options: PricedOption[] = []
+  for (const observation of observations) {
+    if (observation.ok) collectPricedOptions(observation.output, observation.toolId, undefined, options)
+  }
+  const comparableOptions = expectedCurrency
+    ? options.filter((option) => option.currency?.toUpperCase() === expectedCurrency)
+    : options
+  const cheapest = comparableOptions.sort((left, right) => left.amount - right.amount)[0]
+  const priceLabel = cheapest
+    ? `${cheapest.currency ?? expectedCurrency ?? 'Currency unknown'} ${cheapest.amount.toLocaleString('en-IN')}`
+    : undefined
+  const link = cheapest && [cheapest.data.link, cheapest.data.url, cheapest.data.placeLink]
+    .find((value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value))
+
+  const alternatives = assessment.constraint.toLowerCase() === 'budget'
+    ? [
+        ...(priceLabel ? [`Raise the budget to at least ${priceLabel}, the cheapest observed option.`] : []),
+        'Try nearby travel dates, when fares may be lower.',
+        'Consider nearby airports, different departure times, or itineraries with a stop.',
+      ]
+    : [
+        `Relax or change the ${assessment.constraint} constraint and search again.`,
+        'Consider reasonable trade-offs in nearby dates, locations, or preferences.',
+      ]
+
+  return {
+    status: 'no_match',
+    summary: `No matching option was found because the ${assessment.constraint} constraint was violated. ${priceLabel ? `The cheapest observed option was ${priceLabel}.` : 'No comparable priced option was available.'}`,
+    constraint: {
+      id: assessment.constraint,
+      expected: constraintValue,
+      status: assessment.status,
+      reason: assessment.reason,
+      ...(cheapest ? {
+        actual: {
+          cheapestObserved: cheapest.amount,
+          currency: cheapest.currency ?? expectedCurrency,
+        },
+      } : {}),
+    },
+    ...(cheapest ? {
+      cheapestOption: {
+        ...cheapest.data,
+        ...(link ? { link } : {}),
+        toolId: cheapest.toolId,
+      },
+    } : {}),
+    alternatives,
+  }
+}
+
 function buildMissionState(
   missionId: string,
   request: MissionRequest,
@@ -243,6 +342,14 @@ function buildMissionState(
     }]
   })
 
+  const constraintAssessments = state.constraintHistory.at(-1)?.assessments ?? []
+  const terminalViolation = constraintAssessments.find((item) => item.status === 'violated')
+  const constraintBlockedReplan = state.replanReasons.some((reason) =>
+    reason.startsWith('Constraints need resolution:'),
+  )
+  const noMatchAssessment = state.status === 'failed' && terminalViolation && constraintBlockedReplan
+    ? terminalViolation
+    : undefined
   const failures: MissionFailure[] = state.observations.flatMap((observation) => {
     if (observation.ok) return []
     return [{
@@ -252,7 +359,7 @@ function buildMissionState(
       toolId: observation.toolId,
     }]
   })
-  if (state.failureReason && !failures.some((failure) => state.failureReason?.includes(failure.message))) {
+  if (state.failureReason && !noMatchAssessment && !failures.some((failure) => state.failureReason?.includes(failure.message))) {
     const source: MissionFailure['source'] = state.failureReason.startsWith('Configuration required:')
       ? 'configuration'
       : state.failureReason.startsWith('Planning failed:') ? 'planner'
@@ -267,7 +374,6 @@ function buildMissionState(
   for (const observation of state.observations) {
     if (observation.ok) collectEvidence(observation.output, observation.stepId, observation.toolId, evidence)
   }
-  const constraintAssessments = state.constraintHistory.at(-1)?.assessments ?? []
   const verifiedFacts: MissionVerifiedFact[] = evidence.map((item) => ({
     claim: item.title ?? `Observed result from ${item.source ?? item.toolId}`,
     toolId: item.toolId,
@@ -286,11 +392,16 @@ function buildMissionState(
   const missingInformation = [...new Set([...plannerMissingInformation, ...constraintMissingInformation])]
   const hasUnknownConstraints = constraintAssessments.some((item) => item.status === 'unknown')
   const plannerNeedsInformation = state.planningHistory.at(-1)?.decision === 'replan'
-  const status = state.status === 'failed' && (
+  const status = noMatchAssessment
+    ? 'no_match'
+    : state.status === 'failed' && (
     hasUnknownConstraints || missingInformation.length > 0 || plannerNeedsInformation
   )
     ? 'needs_information'
     : state.status
+  const finalResult = noMatchAssessment
+    ? noMatchResult(goal, state.observations, noMatchAssessment)
+    : state.finalResult
 
   return {
     missionId,
@@ -310,7 +421,7 @@ function buildMissionState(
     verifiedFacts,
     assumptions,
     missingInformation,
-    ...(state.finalResult !== undefined ? { finalResult: state.finalResult } : {}),
+    ...(finalResult !== undefined ? { finalResult } : {}),
     iterationCount: state.observations.length,
   }
 }

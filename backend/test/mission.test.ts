@@ -238,6 +238,58 @@ test('deterministic budget violation replans and records status history', async 
   assert.equal(state.verifiedFacts[0]?.claim, 'Budget option')
 })
 
+test('terminal budget violation returns a no-match result with the cheapest option and evidence', async () => {
+  const planner: PlanningStrategy = {
+    createPlan: (request) => request.observations.length === 0
+      ? planTool(request, 'priced-flight-search', 'flight-over-budget')
+      : { goalId: request.goal.id, decision: 'complete', steps: [], finalResult: 'Mission succeeded' },
+  }
+  const service = missionService(planner, {
+    agent: { maxReplans: 1 },
+    registerTools: (registry) => registry.register(createTool('priced-flight-search', () => ({
+      currency: 'INR',
+      results: [
+        { airline: 'Air One', flightNumber: 'AO 12', price: 12000, link: 'https://flights.example/ao12' },
+        { airline: 'Air Two', flightNumber: 'AT 34', price: 9500, link: 'https://flights.example/at34' },
+      ],
+    }))),
+  })
+
+  const state = await service.execute({
+    goal: 'Find a flight under INR 8000',
+    constraints: { budget: { max: 8000, currency: 'INR' } },
+  })
+
+  assert.equal(state.status, 'no_match')
+  assert.equal(state.failures.length, 0)
+  assert.equal(state.constraintAssessments[0]?.status, 'violated')
+  assert.equal(state.evidence.length, 2)
+  assert.equal(state.evidence[1]?.url, 'https://flights.example/at34')
+  assert.deepEqual(state.finalResult, {
+    status: 'no_match',
+    summary: 'No matching option was found because the budget constraint was violated. The cheapest observed option was INR 9,500.',
+    constraint: {
+      id: 'budget',
+      expected: { max: 8000, currency: 'INR' },
+      status: 'violated',
+      reason: 'All comparable observed prices exceed the 8000 budget.',
+      actual: { cheapestObserved: 9500, currency: 'INR' },
+    },
+    cheapestOption: {
+      airline: 'Air Two',
+      flightNumber: 'AT 34',
+      price: 9500,
+      link: 'https://flights.example/at34',
+      toolId: 'priced-flight-search',
+    },
+    alternatives: [
+      'Raise the budget to at least INR 9,500, the cheapest observed option.',
+      'Try nearby travel dates, when fares may be lower.',
+      'Consider nearby airports, different departure times, or itineraries with a stop.',
+    ],
+  })
+})
+
 test('unknown required preferences cause another tool plan instead of completion', async () => {
   const planner: PlanningStrategy = {
     createPlan: (request) => {

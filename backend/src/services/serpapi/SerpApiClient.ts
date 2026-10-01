@@ -23,13 +23,29 @@ export class SerpApiClient implements SerpApiClientContract {
     url.searchParams.set('api_key', this.apiKey)
 
     const response = await this.fetchImplementation(url)
-    if (!response.ok) {
-      throw new Error(`SerpApi request failed with status ${response.status}`)
+    const responseBody = await response.text()
+    let payload: unknown
+    try {
+      payload = JSON.parse(responseBody)
+    } catch {
+      if (!response.ok) {
+        const detail = responseBody.trim()
+        throw new Error(`SerpApi request failed with status ${response.status}${detail ? `: ${detail}` : ''}`)
+      }
+      throw new Error('SerpApi returned an invalid response')
     }
 
-    const payload: unknown = await response.json()
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
       throw new Error('SerpApi returned an invalid response')
+    }
+
+    if (!response.ok) {
+      const detail = 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : 'message' in payload && typeof payload.message === 'string'
+          ? payload.message
+          : response.statusText
+      throw new Error(`SerpApi request failed with status ${response.status}: ${detail}`)
     }
 
     if ('error' in payload && typeof payload.error === 'string') {

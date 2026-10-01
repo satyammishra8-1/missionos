@@ -174,6 +174,36 @@ test('Google Flights calls the SerpApi engine through ToolExecutor', async () =>
   })
 })
 
+test('Google Flights resolves city names to IATA airport IDs before sending the request', async () => {
+  let requestParameters: Readonly<Record<string, string | number>> | undefined
+  const registry = createRegistry({
+    search: async (parameters) => {
+      requestParameters = parameters
+      return { best_flights: [], other_flights: [] }
+    },
+  })
+  const tool = registry.get('google-flights')
+  assert.ok(tool)
+
+  const result = await new ToolExecutor(registry).execute({
+    id: 'city-flight-step',
+    toolId: tool.id,
+    objective: 'Find flights',
+    input: {
+      departure: 'Bengaluru',
+      destination: 'Hyderabad',
+      departureDate: '2026-10-10',
+      passengers: 2,
+      travelClass: 'economy',
+      currency: 'INR',
+    },
+  }, { goal, observations: [] })
+
+  assert.equal(result.ok, true)
+  assert.equal(requestParameters?.departure_id, 'BLR')
+  assert.equal(requestParameters?.arrival_id, 'HYD')
+})
+
 test('Google Flights reports transport failures through ToolExecutor', async () => {
   const fetchImplementation: typeof fetch = async () =>
     new Response(JSON.stringify({ error: 'Flights service unavailable' }), { status: 502 })
@@ -190,7 +220,7 @@ test('Google Flights reports transport failures through ToolExecutor', async () 
   }, { goal, observations: [] })
 
   assert.equal(result.ok, false)
-  if (!result.ok) assert.match(result.error, /status 502/)
+  if (!result.ok) assert.match(result.error, /status 502: Flights service unavailable/)
 })
 
 test('Google Flights mock mode works without an API key through Agent and ToolExecutor', async () => {

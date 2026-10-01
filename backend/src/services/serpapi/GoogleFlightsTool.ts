@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import type { MissionGoal, ToolDefinition } from '../../agent/types.js'
 import type {
   GoogleFlightsInput,
@@ -15,6 +16,41 @@ const travelClasses = {
   business: 3,
   first: 4,
 } as const
+
+interface AirportRecord {
+  city?: string
+  iata?: string
+  name?: string
+}
+
+const require = createRequire(import.meta.url)
+const airports = require('airport-codes/airports.json') as readonly AirportRecord[]
+
+function normalizeLocation(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
+}
+
+const locationAliases: Readonly<Record<string, string>> = {
+  bengaluru: 'bangalore',
+}
+
+function resolveAirportId(location: string, fieldName: string): string {
+  const value = location.trim()
+  if (/^[a-z]{3}$/i.test(value)) return value.toUpperCase()
+  if (/^\/[mg]\//i.test(value)) return value
+
+  const normalized = locationAliases[normalizeLocation(value)] ?? normalizeLocation(value)
+  const airport = airports.find((candidate) =>
+    candidate.city && normalizeLocation(candidate.city) === normalized,
+  ) ?? airports.find((candidate) =>
+    candidate.name && normalizeLocation(candidate.name) === normalized,
+  )
+  if (airport?.iata && /^[A-Z]{3}$/.test(airport.iata)) return airport.iata
+
+  throw new Error(
+    `Google Flights ${fieldName} must be an IATA airport code, Google location KGmid, or a city in the airport directory: ${value}`,
+  )
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -191,8 +227,8 @@ export function parseGoogleFlightsResponse(
 function buildSearchParameters(input: GoogleFlightsInput): SerpApiSearchParameters {
   return {
     engine: 'google_flights',
-    departure_id: input.departure,
-    arrival_id: input.destination,
+    departure_id: resolveAirportId(input.departure, 'departure'),
+    arrival_id: resolveAirportId(input.destination, 'destination'),
     outbound_date: input.departureDate,
     type: input.returnDate ? 1 : 2,
     adults: input.passengers,
