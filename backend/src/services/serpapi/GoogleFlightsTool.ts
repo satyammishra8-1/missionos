@@ -52,6 +52,20 @@ function resolveAirportId(location: string, fieldName: string): string {
   )
 }
 
+function airportIdentity(location: string): string {
+  const value = location.trim()
+  if (/^[a-z]{3}$/i.test(value)) return value.toUpperCase()
+  if (/^\/[mg]\//i.test(value)) return value.toLowerCase()
+
+  const normalized = locationAliases[normalizeLocation(value)] ?? normalizeLocation(value)
+  const airport = airports.find((candidate) =>
+    candidate.city && normalizeLocation(candidate.city) === normalized,
+  ) ?? airports.find((candidate) =>
+    candidate.name && normalizeLocation(candidate.name) === normalized,
+  )
+  return airport?.iata ?? normalized
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -289,11 +303,26 @@ export function createGoogleFlightsTool(
       }
     },
     parseInput,
-    execute: async (input) => ({
-      departure: input.departure,
-      destination: input.destination,
-      ...(input.currency ? { currency: input.currency } : {}),
-      results: parseGoogleFlightsResponse(await client.search(buildSearchParameters(input)), input),
-    }),
+    execute: async (input, context) => {
+      const constraints = isRecord(context.goal.metadata?.missionConstraints)
+        ? context.goal.metadata.missionConstraints
+        : {}
+      const route = isRecord(constraints.route) ? constraints.route : {}
+      const departure = typeof route.origin === 'string' &&
+        airportIdentity(route.origin) === airportIdentity(input.departure)
+        ? route.origin
+        : input.departure
+      const destination = typeof route.destination === 'string' &&
+        airportIdentity(route.destination) === airportIdentity(input.destination)
+        ? route.destination
+        : input.destination
+
+      return {
+        departure,
+        destination,
+        ...(input.currency ? { currency: input.currency } : {}),
+        results: parseGoogleFlightsResponse(await client.search(buildSearchParameters(input)), input),
+      }
+    },
   }
 }

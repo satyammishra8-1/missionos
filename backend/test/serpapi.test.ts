@@ -204,6 +204,41 @@ test('Google Flights resolves city names to IATA airport IDs before sending the 
   assert.equal(requestParameters?.arrival_id, 'HYD')
 })
 
+test('Google Flights reports the requested city names when the planner uses airport codes', async () => {
+  const registry = createRegistry({
+    search: async () => ({ best_flights: [], other_flights: [] }),
+  })
+  const tool = registry.get('google-flights')
+  assert.ok(tool)
+
+  const result = await new ToolExecutor(registry).execute({
+    id: 'airport-code-flight-step',
+    toolId: tool.id,
+    objective: 'Find flights',
+    input: {
+      departure: 'BLR',
+      destination: 'HYD',
+      departureDate: '2026-10-10',
+      passengers: 2,
+      travelClass: 'economy',
+      currency: 'INR',
+    },
+  }, {
+    goal: {
+      id: 'bengaluru-hyderabad-flight',
+      description: 'Find a flight from Bengaluru to Hyderabad',
+      metadata: { missionConstraints: { route: { origin: 'Bengaluru', destination: 'Hyderabad' } } },
+    },
+    observations: [],
+  })
+
+  assert.equal(result.ok, true)
+  if (result.ok) {
+    assert.equal(result.output.departure, 'Bengaluru')
+    assert.equal(result.output.destination, 'Hyderabad')
+  }
+})
+
 test('Google Flights reports transport failures through ToolExecutor', async () => {
   const fetchImplementation: typeof fetch = async () =>
     new Response(JSON.stringify({ error: 'Flights service unavailable' }), { status: 502 })
@@ -569,6 +604,40 @@ test('Google Maps Places executes with the Maps engine and normalizes SerpApi re
       placeLink: 'https://maps.google.com/?cid=98765',
     }],
   })
+})
+
+test('Google Maps Places retries unsupported locations using the location in the query', async () => {
+  const requests: Record<string, string | number>[] = []
+  const registry = createRegistry({
+    search: async (parameters) => {
+      requests.push({ ...parameters })
+      if (requests.length === 1) {
+        throw new Error('SerpApi request failed with status 400: Unsupported Koramangala, Bengaluru location - location parameter.')
+      }
+      return { local_results: [{ title: 'Koramangala restaurant', rating: 4.7, reviews: 420 }] }
+    },
+  })
+  const tool = registry.get('google-maps-places')
+  assert.ok(tool)
+
+  const result = await new ToolExecutor(registry).execute({
+    id: 'places-step',
+    toolId: tool.id,
+    objective: 'Find restaurants nearby',
+    input: {
+      query: 'highly rated restaurants near Koramangala, Bengaluru',
+      location: 'Koramangala, Bengaluru',
+    },
+  }, { goal, observations: [] })
+
+  assert.equal(result.ok, true)
+  assert.equal(requests.length, 2)
+  assert.deepEqual(requests[1], {
+    engine: 'google_maps',
+    type: 'search',
+    q: 'highly rated restaurants near Koramangala, Bengaluru',
+  })
+  assert.equal(result.ok ? result.output.results.length : 0, 1)
 })
 
 test('Google Maps Places reports API failures through ToolExecutor', async () => {

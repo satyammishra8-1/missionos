@@ -149,6 +149,30 @@ function buildSearchParameters(input: GoogleMapsPlacesInput): SerpApiSearchParam
   }
 }
 
+function isUnsupportedLocationError(error: unknown): boolean {
+  return error instanceof Error &&
+    /status 400: Unsupported .+ location - location parameter\./i.test(error.message)
+}
+
+async function searchPlaces(
+  client: SerpApiClient,
+  input: GoogleMapsPlacesInput,
+): Promise<unknown> {
+  const parameters = buildSearchParameters(input)
+  try {
+    return await client.search(parameters)
+  } catch (error) {
+    if (!input.location || !isUnsupportedLocationError(error)) throw error
+    const query = input.query.toLowerCase().includes(input.location.toLowerCase())
+      ? input.query
+      : `${input.query} ${input.location}`
+    return client.search(buildSearchParameters({
+      query,
+      ...(input.resultLimit !== undefined ? { resultLimit: input.resultLimit } : {}),
+    }))
+  }
+}
+
 export function createGoogleMapsPlacesTool(
   client: SerpApiClient,
 ): ToolDefinition<GoogleMapsPlacesInput, GoogleMapsPlacesOutput> {
@@ -193,7 +217,7 @@ export function createGoogleMapsPlacesTool(
     execute: async (input) => ({
       query: input.query,
       results: parseGoogleMapsPlacesResponse(
-        await client.search(buildSearchParameters(input)),
+        await searchPlaces(client, input),
         input.resultLimit,
       ),
     }),

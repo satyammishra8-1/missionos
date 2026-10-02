@@ -490,7 +490,7 @@ export class MissionExecutionService {
 
       const agentOptions: AgentOptions = {
         maxIterations: 12,
-        timeoutMs: 60_000,
+        timeoutMs: 180_000,
         maxReplans: 8,
         plannerDecidesCompletion: true,
         constraintEvaluator: this.options.constraintEvaluator ?? new MissionConstraintEvaluator(),
