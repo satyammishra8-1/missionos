@@ -615,6 +615,63 @@ test('sample flight mission extracts its written date, route, and passenger coun
   })
 })
 
+test('explicit travel dates stay unchanged when relative date wording is also present', () => {
+  const extracted = extractMissionRequirements(
+    'Find a flight on October 10, 2026, or tomorrow.',
+    {},
+    [],
+    new Date(2026, 8, 30, 12),
+  )
+
+  assert.deepEqual(extracted.explicitDates, ['2026-10-10'])
+  assert.equal(extracted.constraints.date, '2026-10-10')
+})
+
+test('relative travel dates resolve against the server date and reach Google Flights input', () => {
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: '', mockMode: true })
+  const goal = 'Find a flight from Bengaluru to Hyderabad tomorrow for 2 people under ₹20,000.'
+  const extracted = extractMissionRequirements(goal, {}, registry.list(), new Date(2026, 8, 30, 12))
+  const missionGoal = {
+    id: 'tomorrow-flight',
+    description: goal,
+    metadata: {
+      missionConstraints: extracted.constraints,
+      missionRequirements: extracted,
+    },
+  }
+  const flightTool = registry.get('google-flights')
+  assert.ok(flightTool)
+
+  assert.deepEqual(extracted.explicitDates, ['2026-10-01'])
+  assert.deepEqual(extracted.constraints.route, { origin: 'Bengaluru', destination: 'Hyderabad' })
+  assert.equal(extracted.constraints.date, '2026-10-01')
+  assert.deepEqual(flightTool.createInput({ goal: missionGoal, observations: [] }), {
+    departure: 'Bengaluru',
+    destination: 'Hyderabad',
+    departureDate: '2026-10-01',
+    passengers: 2,
+    travelClass: 'economy',
+    currency: 'INR',
+  })
+})
+
+test('today, this weekend, and next weekdays resolve to exact local calendar dates', () => {
+  const serverDate = new Date(2026, 8, 30, 12)
+  const phrases = [
+    ['today', '2026-09-30'],
+    ['this weekend', '2026-10-03'],
+    ['next Monday', '2026-10-05'],
+    ['next Friday', '2026-10-02'],
+  ] as const
+
+  for (const [phrase, expectedDate] of phrases) {
+    const extracted = extractMissionRequirements(`Find a flight ${phrase}.`, {}, [], serverDate)
+    assert.deepEqual(extracted.explicitDates, [expectedDate], phrase)
+    assert.equal(extracted.constraints.date, expectedDate, phrase)
+  }
+})
+
 test('sample flight mission falls back from Gemini and executes through constraint evaluation', async () => {
   const goal = 'Find me a flight ticket from Bengaluru to Hyderabad for 2 people on October 10, 2026, under ₹8,000 total. Find the cheapest suitable option and provide the booking link.'
   const service = createMissionExecutionService({

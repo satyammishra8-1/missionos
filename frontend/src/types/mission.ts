@@ -1,4 +1,4 @@
-export type MissionStatus = 'planning' | 'executing' | 'replanning' | 'completed' | 'failed'
+export type MissionStatus = 'planning' | 'executing' | 'replanning' | 'completed' | 'failed' | 'needs_information' | 'no_match'
 
 export type ConstraintStatus = 'satisfied' | 'violated' | 'unknown'
 
@@ -63,6 +63,7 @@ export interface MissionResult {
 export interface MissionResponse {
   missionId: string
   status: MissionStatus
+  error?: { code: string; message: string } | null
   plan: readonly MissionPlanStep[]
   toolCalls: readonly MissionToolCall[]
   replans: readonly MissionReplan[]

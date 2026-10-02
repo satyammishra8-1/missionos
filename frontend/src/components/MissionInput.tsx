@@ -1,10 +1,16 @@
+interface OptionalConstraints {
+  budget: string
+  currency: string
+  mustHaves: string
+}
+
 interface MissionInputProps {
   goal: string
-  constraints: string
+  constraints: OptionalConstraints
   busy: boolean
   error?: string
   onGoalChange: (value: string) => void
-  onConstraintsChange: (value: string) => void
+  onConstraintsChange: (value: OptionalConstraints) => void
   onSubmit: () => void
 }
 
@@ -25,34 +31,35 @@ export function MissionInput({
         onSubmit()
       }}
     >
-      <label className="field-label" htmlFor="mission-goal">Mission</label>
+      <label className="field-label" htmlFor="mission-goal">YOUR MISSION</label>
       <textarea
         id="mission-goal"
         className="mission-textarea"
         value={goal}
         onChange={(event) => onGoalChange(event.target.value)}
-        placeholder="Plan my Hyderabad interview trip under ₹8,000"
-        rows={3}
+        placeholder="Describe what you’re trying to find, decide, or plan…"
+        rows={2}
         maxLength={4_000}
         required
         disabled={busy}
       />
+      <details className="constraint-options">
+        <summary><span className="plus-mark" aria-hidden="true">＋</span> Add optional constraints</summary>
+        <div className="constraint-fields">
+          <label className="constraint-field" htmlFor="mission-budget"><span className="field-label">Maximum budget</span>
+            <div className="budget-input-row"><select aria-label="Budget currency" value={constraints.currency} onChange={(event) => onConstraintsChange({ ...constraints, currency: event.target.value })} disabled={busy}>
+              <option value="USD">USD $</option><option value="INR">INR ₹</option><option value="EUR">EUR €</option><option value="GBP">GBP £</option>
+            </select><input id="mission-budget" inputMode="decimal" type="number" min="0" step="any" value={constraints.budget} onChange={(event) => onConstraintsChange({ ...constraints, budget: event.target.value })} placeholder="Any amount" disabled={busy} /></div>
+          </label>
+          <label className="constraint-field" htmlFor="mission-must-haves"><span className="field-label">Must-haves</span>
+            <input id="mission-must-haves" type="text" value={constraints.mustHaves} onChange={(event) => onConstraintsChange({ ...constraints, mustHaves: event.target.value })} placeholder="Separate with commas" disabled={busy} />
+          </label>
+        </div>
+      </details>
       <div className="input-bottom-row">
-        <label className="constraint-field" htmlFor="mission-constraints">
-          <span className="field-label">Constraints <span className="optional-label">Optional</span></span>
-          <textarea
-            id="mission-constraints"
-            className="constraints-textarea"
-            value={constraints}
-            onChange={(event) => onConstraintsChange(event.target.value)}
-            placeholder={'{"budget": 8000, "location": "Hyderabad"}'}
-            rows={2}
-            disabled={busy}
-            spellCheck={false}
-          />
-        </label>
+        <span className="input-hint">More detail helps MissionOS find a better answer.</span>
         <button className="run-button" type="submit" disabled={busy || !goal.trim()}>
-          {busy ? <><span className="button-spinner" aria-hidden="true" />Running</> : <>Run Mission <span aria-hidden="true">↗</span></>}
+          {busy ? <><span className="button-spinner" aria-hidden="true" />Working</> : <>Run mission <span aria-hidden="true">↗</span></>}
         </button>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}

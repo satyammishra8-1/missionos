@@ -1,37 +1,113 @@
 import type { MissionFinding } from '../types/mission'
-import { displayToolName, formatData } from './missionFormat'
+import { formatDuration, formatPrice, humanizeKey, isRecord } from './missionFormat'
 
 interface FindingsPanelProps {
   findings: readonly MissionFinding[]
-  busy: boolean
+  busy?: boolean
 }
 
-export function FindingsPanel({ findings, busy }: FindingsPanelProps) {
+export function FindingsPanel({ findings, busy = false }: FindingsPanelProps) {
   return (
     <section className="workspace-section" aria-labelledby="findings-heading">
       <div className="section-heading-row">
         <div>
-          <p className="section-kicker">03 / Observations</p>
-          <h2 id="findings-heading" className="section-title">Findings</h2>
+          <p className="section-kicker">RESEARCH</p>
+          <h2 id="findings-heading" className="section-title">What we found</h2>
         </div>
-        <span className="count-label">{findings.length} items</span>
+        <span className="count-label">{findings.reduce((count, finding) => count + resultItems(finding.output).length, 0)} results</span>
       </div>
       {findings.length === 0 ? (
-        <p className="empty-state">{busy ? 'Findings will appear with the backend response.' : 'No findings were returned.'}</p>
+        <p className="empty-state">{busy ? 'Findings will appear when the mission finishes.' : 'No results were returned for this mission.'}</p>
       ) : (
         <ul className="findings-list">
           {findings.map((finding) => (
-            <li className="finding-item" key={finding.stepId}>
-              <div className="finding-meta">
-                <span>{displayToolName(finding.toolId)}</span>
-                <span>{finding.stepId}</span>
-              </div>
+            <li className="finding-group" key={finding.stepId}>
               <p className="finding-objective">{finding.objective}</p>
-              <pre className="finding-data">{formatData(finding.output)}</pre>
+              <div className="result-card-list">
+                {resultItems(finding.output).map((item, index) => <ResultOptionCard key={`${item.title}-${index}`} item={item.value} currency={item.currency} />)}
+              </div>
+              {resultItems(finding.output).length === 0 && <p className="generic-result">{genericSummary(finding.output)}</p>}
             </li>
           ))}
         </ul>
       )}
     </section>
   )
+}
+
+interface ResultItem {
+  value: unknown
+  currency?: string
+  title: string
+}
+
+function resultItems(output: unknown): ResultItem[] {
+  if (!isRecord(output)) return []
+  const currency = typeof output.currency === 'string' ? output.currency : undefined
+  if (Array.isArray(output.results)) {
+    return output.results.map((value, index) => ({
+      value,
+      currency,
+      title: isRecord(value) ? titleFor(value) : `Result ${index + 1}`,
+    }))
+  }
+  return [{ value: output, currency, title: titleFor(output) }]
+}
+
+function titleFor(value: Record<string, unknown>): string {
+  for (const key of ['airline', 'name', 'title', 'flightNumber', 'summary']) {
+    if (typeof value[key] === 'string' && value[key].trim()) return value[key] as string
+  }
+  return 'Research result'
+}
+
+function genericSummary(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (isRecord(value)) {
+    for (const key of ['summary', 'description', 'snippet', 'answer']) {
+      if (typeof value[key] === 'string') return value[key] as string
+    }
+  }
+  return 'The mission returned findings that could not be displayed as a result card.'
+}
+
+export function ResultOptionCard({ item, currency }: { item: unknown; currency?: string }) {
+  if (!isRecord(item)) return <article className="result-card"><p>{String(item)}</p></article>
+  const flight = typeof item.flightNumber === 'string'
+  const title = titleFor(item)
+  const link = [item.link, item.bookingLink, item.url].find((value): value is string =>
+    typeof value === 'string' && /^https?:\/\//i.test(value),
+  )
+  const price = formatPrice(item.price ?? item.totalPrice ?? item.amount, currency)
+  const excluded = new Set(['link', 'url', 'bookingLink', 'source', 'currency', 'price', 'totalPrice', 'amount', 'airline', 'flightNumber', 'departure', 'arrival', 'duration', 'stops', 'toolId'])
+  const details = Object.entries(item).filter(([key, value]) => !excluded.has(key) && value !== null && value !== undefined && value !== '')
+
+  return <article className={`result-card${flight ? ' flight-card' : ''}`}>
+    <div className="result-card-heading">
+      <div><h3>{title}</h3>{flight && <span className="flight-number">{String(item.flightNumber)}</span>}</div>
+      {price && <strong className="result-price">{price}</strong>}
+    </div>
+    {flight && <div className="flight-route">
+      <div><span>DEPARTURE</span><strong>{String(item.departure ?? '—')}</strong></div>
+      <span className="route-connector" aria-hidden="true">→</span>
+      <div><span>ARRIVAL</span><strong>{String(item.arrival ?? '—')}</strong></div>
+    </div>}
+    {flight && <div className="flight-facts">
+      {formatDuration(item.duration) && <span>{formatDuration(item.duration)}</span>}
+      {typeof item.stops === 'number' && <span>{item.stops === 0 ? 'Nonstop' : `${item.stops} stop${item.stops === 1 ? '' : 's'}`}</span>}
+    </div>}
+    {details.length > 0 && <dl className="result-details">{details.map(([key, value]) => <div key={key}><dt>{humanizeKey(key)}</dt><dd>{displayValue(value)}</dd></div>)}</dl>}
+    {link && <a className="source-link" href={link} target="_blank" rel="noreferrer">View source or booking <span aria-hidden="true">↗</span></a>}
+  </article>
+}
+
+function displayValue(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.map(displayValue).join(', ')
+  if (isRecord(value)) {
+    if (typeof value.display === 'string') return value.display
+    if (typeof value.amount === 'number') return formatPrice(value.amount, typeof value.currency === 'string' ? value.currency : undefined) ?? String(value.amount)
+    return Object.values(value).map(displayValue).join(' · ')
+  }
+  return ''
 }

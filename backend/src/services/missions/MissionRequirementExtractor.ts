@@ -45,7 +45,7 @@ function extractDurationDays(goal: string): number | undefined {
 
 function extractRoute(goal: string): { origin: string; destination: string } | undefined {
   const explicitRoute = goal.match(
-    /\bfrom\s+([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)\s+to\s+([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)(?=\s+(?:for|on|under|below|within|with|and|by)\b|[,.;]|$)/iu,
+    /\bfrom\s+([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)\s+to\s+([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)(?=\s+(?:for|on|under|below|within|with|and|by|today|tomorrow|this\s+weekend|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b|[,.;]|$)/iu,
   )
   if (explicitRoute?.[1] && explicitRoute[2]) {
     return { origin: explicitRoute[1].trim(), destination: explicitRoute[2].trim() }
@@ -78,10 +78,55 @@ function extractDates(goal: string): string[] {
   return [...new Set(dates)]
 }
 
+function formatLocalDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function dateAfterDays(now: Date, days: number): string {
+  const date = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  date.setDate(date.getDate() + days)
+  return formatLocalDate(date)
+}
+
+function extractRelativeDates(goal: string, now: Date): string[] {
+  const weekdays: Readonly<Record<string, number>> = {
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+    sunday: 0,
+  }
+  const dates: string[] = []
+  const relativeDatePattern = /\b(today|tomorrow|this weekend|next (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/gi
+
+  for (const match of goal.matchAll(relativeDatePattern)) {
+    const phrase = match[0].toLowerCase()
+    if (phrase === 'today') {
+      dates.push(dateAfterDays(now, 0))
+    } else if (phrase === 'tomorrow') {
+      dates.push(dateAfterDays(now, 1))
+    } else if (phrase === 'this weekend') {
+      const daysUntilSaturday = (6 - now.getDay() + 7) % 7
+      dates.push(dateAfterDays(now, daysUntilSaturday))
+    } else {
+      const weekday = weekdays[phrase.slice(5)]
+      if (weekday !== undefined) {
+        const daysUntilNextWeekday = (weekday - now.getDay() + 7) % 7 || 7
+        dates.push(dateAfterDays(now, daysUntilNextWeekday))
+      }
+    }
+  }
+
+  return [...new Set(dates)]
+}
+
 export function extractMissionRequirements(
   goal: string,
   suppliedConstraints: Readonly<Record<string, unknown>>,
   tools: readonly RegisteredTool[],
+  now: Date = new Date(),
 ): ExtractedMissionRequirements {
   const constraints: Record<string, unknown> = { ...suppliedConstraints }
   const budget = extractBudget(goal)
@@ -107,10 +152,13 @@ export function extractMissionRequirements(
     : suppliedDateValues !== null && typeof suppliedDateValues === 'object'
       ? Object.values(suppliedDateValues).filter((item): item is string => typeof item === 'string')
       : []
-  const explicitDates = [...new Set([
+  const suppliedExplicitDates = [...new Set([
     ...extractDates(goal),
     ...suppliedDates.flatMap((item) => item.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? []),
   ])]
+  const explicitDates = suppliedExplicitDates.length > 0
+    ? suppliedExplicitDates
+    : extractRelativeDates(goal, now)
   if (explicitDates.length > 0 && constraints.date === undefined) {
     constraints.date = explicitDates.length === 1
       ? explicitDates[0]
