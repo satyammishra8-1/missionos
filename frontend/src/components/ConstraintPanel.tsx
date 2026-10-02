@@ -1,13 +1,15 @@
 import type { ConstraintAssessment } from '../types/mission'
+import { CircleHelp, Check, X } from 'lucide-react'
+import { humanizeKey } from './missionFormat'
 
 interface ConstraintPanelProps {
   constraints: readonly ConstraintAssessment[]
 }
 
 const statusPresentation = {
-  satisfied: { symbol: '✓', label: 'Satisfied' },
-  violated: { symbol: '✕', label: 'Not met' },
-  unknown: { symbol: '?', label: 'Unconfirmed' },
+  satisfied: { Icon: Check, label: 'Satisfied' },
+  violated: { Icon: X, label: 'Violated' },
+  unknown: { Icon: CircleHelp, label: 'Unknown' },
 } as const
 
 export function ConstraintPanel({ constraints }: ConstraintPanelProps) {
@@ -24,15 +26,16 @@ export function ConstraintPanel({ constraints }: ConstraintPanelProps) {
         <p className="empty-state">No constraints were provided for this mission.</p>
       ) : (
         <ul className="constraint-list">
-          {constraints.map((item, index) => (
-            <li className="constraint-item" key={`${item.constraint}-${index}`}>
+          {constraints.map((item, index) => {
+            const StatusIcon = statusPresentation[item.status].Icon
+            return <li className="constraint-item" key={`${item.constraint}-${index}`}>
               <div className="constraint-title-row">
-                <h3>{item.constraint.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ')}</h3>
-                  <span className="constraint-status" data-state={item.status}><b aria-hidden="true">{statusPresentation[item.status].symbol}</b>{statusPresentation[item.status].label}</span>
+                <h3>{humanizeKey(item.constraint)}</h3>
+                <span className="constraint-status" data-state={item.status}><StatusIcon size={12} aria-hidden="true" />{statusPresentation[item.status].label}</span>
               </div>
               <p>{item.reason}</p>
             </li>
-          ))}
+          })}
         </ul>
       )}
     </section>

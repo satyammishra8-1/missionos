@@ -1,4 +1,5 @@
 import type { MissionReplan } from '../types/mission'
+import { GitBranch, RotateCcw } from 'lucide-react'
 
 interface ReplanningPanelProps {
   replans: readonly MissionReplan[]
@@ -10,10 +11,10 @@ export function ReplanningPanel({ replans, busy }: ReplanningPanelProps) {
     <section className="workspace-section" aria-labelledby="replans-heading">
       <div className="section-heading-row">
         <div>
-          <p className="section-kicker">03 / Adaptation</p>
+          <p className="section-kicker">ADAPTATION</p>
           <h2 id="replans-heading" className="section-title">Replanning events</h2>
         </div>
-        <span className="count-label">{replans.length} events</span>
+        <span className="count-label">{replans.length} {replans.length === 1 ? 'adjustment' : 'adjustments'}</span>
       </div>
       {replans.length === 0 ? (
         <p className="empty-state">
@@ -23,8 +24,8 @@ export function ReplanningPanel({ replans, busy }: ReplanningPanelProps) {
         <ol className="replan-list">
           {replans.map((replan, index) => (
             <li className="replan-item" key={`${replan.iteration}-${index}`}>
-              <span className="replan-iteration">{String(replan.iteration).padStart(2, '0')}</span>
-              <p>{replan.reason}</p>
+              <span className="replan-icon" aria-hidden="true">{index === 0 ? <GitBranch size={14} /> : <RotateCcw size={14} />}</span>
+              <div><span className="replan-label">Plan adjusted · iteration {replan.iteration}</span><p>{replan.reason}</p></div>
             </li>
           ))}
         </ol>

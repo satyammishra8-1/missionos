@@ -1,3 +1,5 @@
+import { ArrowUpRight, ChevronDown, SlidersHorizontal } from 'lucide-react'
+
 interface OptionalConstraints {
   budget: string
   currency: string
@@ -42,9 +44,16 @@ export function MissionInput({
         maxLength={4_000}
         required
         disabled={busy}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            event.currentTarget.form?.requestSubmit()
+          }
+        }}
       />
+      <div className="composer-meta"><span>Be specific about what matters most.</span><span className="char-count">{goal.length.toLocaleString()} / 4,000</span></div>
       <details className="constraint-options">
-        <summary><span className="plus-mark" aria-hidden="true">＋</span> Add optional constraints</summary>
+        <summary><SlidersHorizontal size={14} aria-hidden="true" /> Add optional constraints <ChevronDown className="constraint-chevron" size={14} aria-hidden="true" /></summary>
         <div className="constraint-fields">
           <label className="constraint-field" htmlFor="mission-budget"><span className="field-label">Maximum budget</span>
             <div className="budget-input-row"><select aria-label="Budget currency" value={constraints.currency} onChange={(event) => onConstraintsChange({ ...constraints, currency: event.target.value })} disabled={busy}>
@@ -57,9 +66,9 @@ export function MissionInput({
         </div>
       </details>
       <div className="input-bottom-row">
-        <span className="input-hint">More detail helps MissionOS find a better answer.</span>
+        <span className="input-hint">Shortcut <kbd>⌘</kbd> / <kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
         <button className="run-button" type="submit" disabled={busy || !goal.trim()}>
-          {busy ? <><span className="button-spinner" aria-hidden="true" />Working</> : <>Run mission <span aria-hidden="true">↗</span></>}
+          {busy ? <><span className="button-spinner" aria-hidden="true" />Working</> : <>Run mission <ArrowUpRight size={15} aria-hidden="true" /></>}
         </button>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}

@@ -1,4 +1,5 @@
 import type { MissionFinding } from '../types/mission'
+import { ArrowUpRight } from 'lucide-react'
 import { formatDuration, formatPrice, humanizeKey, isRecord } from './missionFormat'
 
 interface FindingsPanelProps {
@@ -23,10 +24,20 @@ export function FindingsPanel({ findings, busy = false }: FindingsPanelProps) {
           {findings.map((finding) => (
             <li className="finding-group" key={finding.stepId}>
               <p className="finding-objective">{finding.objective}</p>
-              <div className="result-card-list">
-                {resultItems(finding.output).map((item, index) => <ResultOptionCard key={`${item.title}-${index}`} item={item.value} currency={item.currency} />)}
-              </div>
-              {resultItems(finding.output).length === 0 && <p className="generic-result">{genericSummary(finding.output)}</p>}
+                <div className="result-card-list">
+                  {resultItems(finding.output).map((item, index, items) => {
+                    const prices = items.map((candidate) => numericPrice(candidate.value)).filter((price): price is number => price !== undefined)
+                    const price = numericPrice(item.value)
+                    const flight = isRecord(item.value) && typeof item.value.flightNumber === 'string'
+                    return <ResultOptionCard
+                      key={`${item.title}-${index}`}
+                      item={item.value}
+                      currency={item.currency}
+                      highlighted={flight && price !== undefined && price === Math.min(...prices)}
+                    />
+                  })}
+                </div>
+                {resultItems(finding.output).length === 0 && <p className="generic-result">{genericSummary(finding.output)}</p>}
             </li>
           ))}
         </ul>
@@ -71,7 +82,7 @@ function genericSummary(value: unknown): string {
   return 'The mission returned findings that could not be displayed as a result card.'
 }
 
-export function ResultOptionCard({ item, currency }: { item: unknown; currency?: string }) {
+export function ResultOptionCard({ item, currency, highlighted = false }: { item: unknown; currency?: string; highlighted?: boolean }) {
   if (!isRecord(item)) return <article className="result-card"><p>{String(item)}</p></article>
   const flight = typeof item.flightNumber === 'string'
   const title = titleFor(item)
@@ -82,10 +93,10 @@ export function ResultOptionCard({ item, currency }: { item: unknown; currency?:
   const excluded = new Set(['link', 'url', 'bookingLink', 'source', 'currency', 'price', 'totalPrice', 'amount', 'airline', 'flightNumber', 'departure', 'arrival', 'duration', 'stops', 'toolId'])
   const details = Object.entries(item).filter(([key, value]) => !excluded.has(key) && value !== null && value !== undefined && value !== '')
 
-  return <article className={`result-card${flight ? ' flight-card' : ''}`}>
+  return <article className={`result-card${flight ? ' flight-card' : ''}`} data-highlighted={highlighted || undefined}>
     <div className="result-card-heading">
       <div><h3>{title}</h3>{flight && <span className="flight-number">{String(item.flightNumber)}</span>}</div>
-      {price && <strong className="result-price">{price}</strong>}
+      <div className="result-card-price">{highlighted && <span className="best-price-label">Lowest returned price</span>}{price && <strong className="result-price">{price}</strong>}</div>
     </div>
     {flight && <div className="flight-route">
       <div><span>DEPARTURE</span><strong>{String(item.departure ?? '—')}</strong></div>
@@ -97,8 +108,19 @@ export function ResultOptionCard({ item, currency }: { item: unknown; currency?:
       {typeof item.stops === 'number' && <span>{item.stops === 0 ? 'Nonstop' : `${item.stops} stop${item.stops === 1 ? '' : 's'}`}</span>}
     </div>}
     {details.length > 0 && <dl className="result-details">{details.map(([key, value]) => <div key={key}><dt>{humanizeKey(key)}</dt><dd>{displayValue(value)}</dd></div>)}</dl>}
-    {link && <a className="source-link" href={link} target="_blank" rel="noreferrer">View source or booking <span aria-hidden="true">↗</span></a>}
+    {link && <a className="source-link" href={link} target="_blank" rel="noreferrer">{flight ? 'View flight' : 'Open source'} <ArrowUpRight size={13} aria-hidden="true" /></a>}
   </article>
+}
+
+function numericPrice(value: unknown): number | undefined {
+  if (!isRecord(value)) return undefined
+  const rawPrice = value.price ?? value.totalPrice ?? value.amount
+  const price = typeof rawPrice === 'number'
+    ? rawPrice
+    : typeof rawPrice === 'string'
+      ? Number(rawPrice.replace(/[^\d.]/g, ''))
+      : Number.NaN
+  return Number.isFinite(price) ? price : undefined
 }
 
 function displayValue(value: unknown): string {

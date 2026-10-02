@@ -1,5 +1,6 @@
 import type { MissionEvidence } from '../types/mission'
-import { isRecord } from './missionFormat'
+import { ArrowUpRight } from 'lucide-react'
+import { displayToolName, isRecord } from './missionFormat'
 
 interface EvidencePanelProps {
   evidence: readonly MissionEvidence[]
@@ -21,10 +22,11 @@ export function EvidencePanel({ evidence }: EvidencePanelProps) {
         <ol className="evidence-list">
           {evidence.map((item, index) => (
             <li className="evidence-item" key={`${item.stepId}-${item.url ?? index}`}>
-              <div className="evidence-topline"><span className="evidence-source">{item.source ?? 'Source'}</span></div>
+              <div className="evidence-topline"><span className="evidence-source">{item.source ?? 'Source'}</span><span className="evidence-domain">{evidenceDomain(item.url)}</span></div>
               <h3>{item.title ?? evidenceTitle(item.relevantData)}</h3>
+              <span className="evidence-type">{displayToolName(item.toolId)}</span>
               {item.url ? (
-                <a href={item.url} target="_blank" rel="noreferrer">Visit source <span aria-hidden="true">↗</span></a>
+                <a href={item.url} target="_blank" rel="noreferrer">Open source <ArrowUpRight size={12} aria-hidden="true" /></a>
               ) : null}
               {evidenceDescription(item.relevantData) && <p className="evidence-description">{evidenceDescription(item.relevantData)}</p>}
             </li>
@@ -33,6 +35,15 @@ export function EvidencePanel({ evidence }: EvidencePanelProps) {
       )}
     </section>
   )
+}
+
+function evidenceDomain(url?: string): string | undefined {
+  if (!url) return undefined
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return undefined
+  }
 }
 
 function evidenceTitle(value: unknown): string {

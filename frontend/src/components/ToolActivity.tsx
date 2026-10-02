@@ -1,4 +1,5 @@
 import type { MissionToolCall } from '../types/mission'
+import { BedDouble, ChevronDown, MapPin, Plane, Search, Wrench } from 'lucide-react'
 import { displayToolName, formatData } from './missionFormat'
 
 interface ToolActivityProps {
@@ -22,17 +23,17 @@ export function ToolActivity({ toolCalls, busy }: ToolActivityProps) {
         <ol className="activity-list">
           {toolCalls.map((call) => (
             <li className="activity-item" key={call.stepId}>
-              <span className="activity-marker" data-state={call.status} aria-hidden="true" />
+              <span className="activity-icon" aria-hidden="true">{toolIcon(call.toolId)}</span>
               <div className="activity-copy">
                 <div className="activity-title-row">
                   <h3>{displayToolName(call.toolId)}</h3>
-                  <span className="activity-state" data-state={call.status}>{call.status}</span>
+                  <span className="activity-state" data-state={call.status}>{call.status === 'completed' ? 'Done' : call.status === 'failed' ? 'Failed' : 'Pending'}</span>
                 </div>
                 <p className="activity-objective">{call.objective}</p>
                 {call.error && <p className="activity-error">{call.error}</p>}
                 {call.output !== undefined && (
                   <details className="data-disclosure">
-                    <summary>Tool output</summary>
+                    <summary><span>View returned details</span><ChevronDown size={12} aria-hidden="true" /></summary>
                     <pre>{formatData(call.output)}</pre>
                   </details>
                 )}
@@ -43,4 +44,13 @@ export function ToolActivity({ toolCalls, busy }: ToolActivityProps) {
       )}
     </section>
   )
+}
+
+function toolIcon(toolId: string) {
+  const normalized = toolId.toLowerCase()
+  if (normalized.includes('flight')) return <Plane size={14} />
+  if (normalized.includes('hotel')) return <BedDouble size={14} />
+  if (normalized.includes('maps') || normalized.includes('places')) return <MapPin size={14} />
+  if (normalized.includes('search')) return <Search size={14} />
+  return <Wrench size={14} />
 }
