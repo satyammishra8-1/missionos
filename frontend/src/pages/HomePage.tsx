@@ -93,7 +93,7 @@ export function HomePage() {
           <span className="brand-symbol" aria-hidden="true"><Orbit size={18} strokeWidth={2.1} /></span>
           <span>Mission<span className="brand-light">OS</span></span>
         </div>
-        <span className="system-label"><span className="system-dot" /> Open Agent System</span>
+        <span className="system-label"><span className="system-dot" /> AI TRAVEL AGENT</span>
         <nav className="header-nav" aria-label="Main navigation">
           <a className="nav-link" href="#top">Home</a>
           <a className="nav-link" href="#examples">Explore</a>
@@ -106,9 +106,9 @@ export function HomePage() {
       <main id="top" className="workspace-main">
         {(pageState.status === 'ready' || pageState.status === 'error') && <>
           <section className="landing-heading">
-            <span className="landing-eyebrow"><Sparkles size={13} aria-hidden="true" /> RESEARCH, WITH A CLEAR POINT OF VIEW</span>
-            <h1>Tell MissionOS<br /><span>what you need.</span></h1>
-            <p>MissionOS plans, searches, verifies and adapts using live web intelligence.</p>
+            <span className="landing-eyebrow"><Sparkles size={13} aria-hidden="true" /> YOUR AI TRAVEL AGENT</span>
+            <h1>Make the most<br /><span>of your next trip.</span></h1>
+            <p>Compare flights and stays, discover places, and shape practical itineraries from live travel searches and evidence.</p>
           </section>
 
           {pageState.status === 'error' && <div className="request-error" role="alert">
@@ -127,13 +127,13 @@ export function HomePage() {
           />
 
           <section className="examples" id="examples" aria-labelledby="examples-title">
-            <div className="examples-heading"><h2 id="examples-title">Start with an example</h2><span>Choose one to make it yours</span></div>
+            <div className="examples-heading"><h2 id="examples-title">Try a travel mission</h2><span>Choose one to make it yours</span></div>
             <div className="example-grid">
               {[
-                { category: 'TRAVEL', title: 'Find a flight from Bengaluru to Hyderabad tomorrow for 2 people under ₹20,000.', icon: Plane, symbol: 'flight' },
-                { category: 'PRODUCT RESEARCH', title: 'Compare compact cameras under $900 for travel photography.', icon: Search, symbol: 'research' },
-                { category: 'TRIP PLANNING', title: 'Plan a two-day coastal break with a total budget under $700.', icon: Compass, symbol: 'plan' },
-                { category: 'LOCAL DISCOVERY', title: 'Find a quiet place to work nearby with reliable Wi-Fi.', icon: MapPin, symbol: 'local' },
+                { category: 'FLIGHTS', title: 'Bengaluru → Hyderabad flights for 2 passengers within my budget.', icon: Plane, symbol: 'flight' },
+                { category: 'TRIP PLANNING', title: 'Plan a 3-day Goa trip with a hotel, attractions, and activities.', icon: Compass, symbol: 'plan' },
+                { category: 'PLACES', title: 'Find highly rated restaurants and cafes in Bengaluru.', icon: MapPin, symbol: 'local' },
+                { category: 'FLIGHT + HOTEL', title: 'Plan a trip from Bengaluru to Goa with flights and a hotel.', icon: Search, symbol: 'research' },
               ].map((example) => <button className="example-card" type="button" key={example.title} onClick={() => setGoal(example.title)}>
                 <span className={`example-symbol example-symbol-${example.symbol}`} aria-hidden="true">
                   <example.icon size={16} strokeWidth={1.8} />
@@ -149,7 +149,7 @@ export function HomePage() {
           <MissionHeading goal={submittedGoal} status="running" startedAt={missionStartedAt} onReset={resetMission} />
           <div className="waiting-panel" role="status" aria-live="polite">
             <span className="waiting-spinner" aria-hidden="true" />
-            <div><strong>Waiting for the mission trace</strong><p>The service returns its plan, searches and findings together when execution finishes. No live tool updates are available yet.</p></div>
+            <div><strong>Searching for travel options</strong><p>The service returns its travel plan, live searches, and findings together when execution finishes. No live tool updates are available yet.</p></div>
           </div>
           <div className="execution-placeholder">
             <span className="placeholder-kicker">EXECUTION TRACE</span>
@@ -177,7 +177,7 @@ export function HomePage() {
       </main>
 
       <footer className="workspace-footer">
-        <span><Orbit size={14} aria-hidden="true" /> MISSIONOS <i /> LIVE INTELLIGENCE</span>
+        <span><Orbit size={14} aria-hidden="true" /> MISSIONOS <i /> TRAVEL INTELLIGENCE</span>
         <span>Clear answers. Verifiable sources.</span>
       </footer>
     </div>
@@ -215,7 +215,7 @@ function MissionHeading({
 
   return <div className="mission-heading">
     <div className="mission-heading-copy">
-      <span className="landing-eyebrow"><span className="status-indicator" data-state={status} /> MISSION WORKSPACE</span>
+      <span className="landing-eyebrow"><span className="status-indicator" data-state={status} /> TRAVEL WORKSPACE</span>
       <h1>{goal}</h1>
       <div className="mission-meta"><span className="mission-status" data-state={status}>{label}</span><ElapsedTime startedAt={startedAt} finishedAt={finishedAt} running={status === 'running'} /></div>
     </div>
@@ -250,7 +250,7 @@ function MissionStages({ response }: MissionStagesProps) {
   ]
 
   return <section className="stage-section" aria-label="Mission stages">
-    <div className="stage-heading"><div><span className="section-overline">EXECUTION TRACE</span><h2>How the agent worked</h2></div><span>Based on returned activity</span></div>
+    <div className="stage-heading"><div><span className="section-overline">EXECUTION TRACE</span><h2>How your travel agent worked</h2></div><span>Based on returned activity</span></div>
     <ol className="stage-list">
       {stages.map((stage) => <li className="stage-item" data-state={stage.state} key={stage.label}>
         <span className="stage-number" aria-hidden="true">{stage.state === 'complete' ? '✓' : stage.state === 'attention' ? '!' : '·'}</span>

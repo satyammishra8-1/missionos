@@ -1,22 +1,36 @@
 import type { RegisteredTool } from '../../agent/types.js'
+import {
+  isFlightRequest,
+  isHotelRequest,
+  isPlacesRequest,
+  isTravelResearchRequest,
+  isTripPlanningRequest,
+} from './travelIntent.js'
 
 export interface ExtractedMissionRequirements {
   constraints: Readonly<Record<string, unknown>>
   requiredToolIds: readonly string[]
   explicitDates: readonly string[]
+  missingInformation: readonly string[]
   passengers?: number
 }
 
 interface ToolIntentRule {
-  missionIntent: RegExp
+  missionIntent: (goal: string) => boolean
   toolCapability: RegExp
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 const toolIntentRules: readonly ToolIntentRule[] = [
-  { missionIntent: /\b(?:flights?|fly|flying|airfares?|air travel)\b/i, toolCapability: /flight/i },
-  { missionIntent: /\b(?:hotels?|lodging|accommodation|overnight stay)\b/i, toolCapability: /hotel/i },
-  { missionIntent: /\b(?:nearby food|food options?|restaurants?|cafes?|nearby places|places nearby)\b/i, toolCapability: /maps|places/i },
-  { missionIntent: /\b(?:web search|search the web|research online)\b/i, toolCapability: /google-search|web search/i },
+  { missionIntent: isFlightRequest, toolCapability: /flight/i },
+  { missionIntent: isHotelRequest, toolCapability: /hotel/i },
+  { missionIntent: isPlacesRequest, toolCapability: /maps|places/i },
+  { missionIntent: isTravelResearchRequest, toolCapability: /google-search|web search/i },
+  { missionIntent: isTripPlanningRequest, toolCapability: /google-search|web search/i },
+  { missionIntent: isTripPlanningRequest, toolCapability: /google-maps|places/i },
 ]
 
 function extractBudget(goal: string): { amount: number; currency?: string } | undefined {
@@ -51,6 +65,13 @@ function extractRoute(goal: string): { origin: string; destination: string } | u
     return { origin: explicitRoute[1].trim(), destination: explicitRoute[2].trim() }
   }
 
+  const arrowRoute = goal.match(
+    /(?:^|\bfrom\s+|\bflights?\s+|:\s*|,\s*)([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)\s*(?:→|->)\s*([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)(?=\s+(?:flights?|hotels?|for|on|under|below|within|with|today|tomorrow|this\s+weekend|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b|[,.;]|$)/iu,
+  )
+  if (arrowRoute?.[1] && arrowRoute[2]) {
+    return { origin: arrowRoute[1].trim(), destination: arrowRoute[2].trim() }
+  }
+
   const tripFromRoute = goal.match(
     /\b([\p{Lu}][\p{L}.'-]+(?:\s+[\p{Lu}][\p{L}.'-]+)*)\s+trip\s+from\s+([\p{Lu}][\p{L}.'-]+(?:\s+[\p{Lu}][\p{L}.'-]+)*)/u,
   )
@@ -58,6 +79,24 @@ function extractRoute(goal: string): { origin: string; destination: string } | u
     return { origin: tripFromRoute[2].trim(), destination: tripFromRoute[1].trim() }
   }
   return undefined
+}
+
+function extractDestination(goal: string, route: { origin: string; destination: string } | undefined): string | undefined {
+  if (route) return route.destination
+  const afterPreposition = goal.match(
+    /\b(?:trip|itinerary|vacation|holiday|getaway|hotel|restaurants?|cafes?|attractions?|activities)\s+(?:to|in|at)\s+([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)(?=\s+(?:for|under|below|on|with|and|tomorrow|today)\b|[,.;]|$)/iu,
+  )
+  if (afterPreposition?.[1]) return afterPreposition[1].trim()
+  const beforeTrip = goal.match(/\b([\p{Lu}][\p{L}.'-]*(?:\s+[\p{Lu}][\p{L}.'-]*)*)\s+(?:trip|vacation|holiday|getaway)\b/u)
+  if (beforeTrip?.[1]) return beforeTrip[1].trim()
+  const leadingPlace = goal.match(
+    /^\s*(?:find|show|recommend|discover|search for)\s+([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)\s+(?:restaurants?|cafes?|coffee shops?|hotels?|attractions?|activities|places to visit)\b/iu,
+  )
+  if (leadingPlace?.[1]) return leadingPlace[1].trim()
+  const placePreposition = goal.match(
+    /\b(?:in|near|around|at)\s+([\p{L}][\p{L}.'-]*(?:\s+[\p{L}][\p{L}.'-]*)*?)(?=\s+(?:for|under|below|on|with|and|tomorrow|today)\b|[,.;]|$)/iu,
+  )
+  return placePreposition?.[1]?.trim()
 }
 
 function extractDates(goal: string): string[] {
@@ -143,8 +182,20 @@ export function extractMissionRequirements(
     constraints.durationDays = durationDays
   }
 
-  const route = extractRoute(goal)
+  const routeConstraint = isRecord(constraints.route) ? constraints.route : undefined
+  const suppliedRoute = typeof routeConstraint?.origin === 'string' &&
+    typeof routeConstraint.destination === 'string'
+    ? {
+        origin: routeConstraint.origin,
+        destination: routeConstraint.destination,
+      }
+    : undefined
+  const route = extractRoute(goal) ?? suppliedRoute
   if (route && constraints.route === undefined) constraints.route = route
+  const destination = extractDestination(goal, route)
+  if (destination && constraints.location === undefined) constraints.location = destination
+  const hasDestination = (typeof constraints.location === 'string' && constraints.location.trim().length > 0) ||
+    Boolean(route?.destination.trim())
 
   const suppliedDateValues = constraints.date ?? constraints.dates
   const suppliedDates = typeof suppliedDateValues === 'string'
@@ -170,24 +221,46 @@ export function extractMissionRequirements(
         }
   }
 
+  const missingInformation: string[] = []
+  if ((isTripPlanningRequest(goal) || isHotelRequest(goal) || isPlacesRequest(goal)) && !hasDestination) {
+    missingInformation.push(isTripPlanningRequest(goal)
+      ? 'Specify the destination before planning a trip.'
+      : isHotelRequest(goal)
+        ? 'Specify the destination for the hotel search.'
+        : 'Specify the city or area for the places search.')
+  }
+  if (isFlightRequest(goal) && (!route?.origin.trim() || !route.destination.trim())) {
+    missingInformation.push('Specify both the departure city and destination for the flight search.')
+  }
+  if (isFlightRequest(goal) && explicitDates.length === 0) {
+    missingInformation.push('Provide an exact date for departure before searching for flights.')
+  }
+  if (isHotelRequest(goal) && explicitDates.length < 2) {
+    missingInformation.push('Provide exact dates for hotel check-in and check-out.')
+  }
+  if (constraints.durationDays !== undefined && explicitDates.length < 2) {
+    missingInformation.push('Provide exact dates to verify the requested trip duration.')
+  }
+
   const requiredToolIds = new Set(
     Array.isArray(constraints.requiredTools)
       ? constraints.requiredTools.filter((value): value is string => typeof value === 'string')
       : [],
   )
   for (const rule of toolIntentRules) {
-    if (!rule.missionIntent.test(goal)) continue
+    if (!rule.missionIntent(goal)) continue
     const tool = tools.find((candidate) => rule.toolCapability.test(`${candidate.id} ${candidate.description}`))
     if (tool) requiredToolIds.add(tool.id)
   }
   if (requiredToolIds.size > 0) constraints.requiredTools = [...requiredToolIds]
 
-  const passengerMatch = goal.match(/\b(\d{1,2})\s+(?:people|persons?|passengers?|travelers?|travellers?)\b/i)
+  const passengerMatch = goal.match(/\b(\d{1,2})\s+(?:people|persons?|passengers?|adults?|guests?|travelers?|travellers?)\b/i)
   const passengers = passengerMatch ? Number(passengerMatch[1]) : undefined
   return {
     constraints,
     requiredToolIds: [...requiredToolIds],
     explicitDates,
+    missingInformation,
     ...(passengers && passengers > 0 ? { passengers } : {}),
   }
 }

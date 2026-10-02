@@ -12,13 +12,13 @@ export function FindingsPanel({ findings, busy = false }: FindingsPanelProps) {
     <section className="workspace-section" aria-labelledby="findings-heading">
       <div className="section-heading-row">
         <div>
-          <p className="section-kicker">RESEARCH</p>
-          <h2 id="findings-heading" className="section-title">What we found</h2>
+          <p className="section-kicker">TRAVEL FINDINGS</p>
+          <h2 id="findings-heading" className="section-title">Verified travel findings</h2>
         </div>
         <span className="count-label">{findings.reduce((count, finding) => count + resultItems(finding.output).length, 0)} results</span>
       </div>
       {findings.length === 0 ? (
-        <p className="empty-state">{busy ? 'Findings will appear when the mission finishes.' : 'No results were returned for this mission.'}</p>
+        <p className="empty-state">{busy ? 'Travel findings will appear when the search finishes.' : 'No travel results were returned. Try different dates, locations, or preferences.'}</p>
       ) : (
         <ul className="findings-list">
           {findings.map((finding) => (
@@ -86,9 +86,10 @@ export function ResultOptionCard({ item, currency, highlighted = false }: { item
   if (!isRecord(item)) return <article className="result-card"><p>{String(item)}</p></article>
   const flight = typeof item.flightNumber === 'string'
   const title = titleFor(item)
+  const isPlace = typeof item.placeLink === 'string'
   const link = [item.link, item.bookingLink, item.url].find((value): value is string =>
     typeof value === 'string' && /^https?:\/\//i.test(value),
-  )
+  ) ?? (typeof item.placeLink === 'string' && /^https?:\/\//i.test(item.placeLink) ? item.placeLink : undefined)
   const price = formatPrice(item.price ?? item.totalPrice ?? item.amount, currency)
   const excluded = new Set(['link', 'url', 'bookingLink', 'source', 'currency', 'price', 'totalPrice', 'amount', 'airline', 'flightNumber', 'departure', 'arrival', 'duration', 'stops', 'toolId'])
   const details = Object.entries(item).filter(([key, value]) => !excluded.has(key) && value !== null && value !== undefined && value !== '')
@@ -108,7 +109,10 @@ export function ResultOptionCard({ item, currency, highlighted = false }: { item
       {typeof item.stops === 'number' && <span>{item.stops === 0 ? 'Nonstop' : `${item.stops} stop${item.stops === 1 ? '' : 's'}`}</span>}
     </div>}
     {details.length > 0 && <dl className="result-details">{details.map(([key, value]) => <div key={key}><dt>{humanizeKey(key)}</dt><dd>{displayValue(value)}</dd></div>)}</dl>}
-    {link && <a className="source-link" href={link} target="_blank" rel="noreferrer">{flight ? 'View flight' : 'Open source'} <ArrowUpRight size={13} aria-hidden="true" /></a>}
+    {link && <a className="source-link" href={link} target="_blank" rel="noreferrer">
+      {isPlace ? 'View on Google Maps' : flight ? 'Search this flight' : item.bookingLink ? 'View booking options' : 'Open source'}
+      <ArrowUpRight size={13} aria-hidden="true" />
+    </a>}
   </article>
 }
 

@@ -33,13 +33,13 @@ export function MissionInput({
         onSubmit()
       }}
     >
-      <label className="field-label" htmlFor="mission-goal">YOUR MISSION</label>
+      <label className="field-label" htmlFor="mission-goal">YOUR TRAVEL MISSION</label>
       <textarea
         id="mission-goal"
         className="mission-textarea"
         value={goal}
         onChange={(event) => onGoalChange(event.target.value)}
-        placeholder="Describe what you’re trying to find, decide, or plan…"
+        placeholder="Where are you going? Share dates, travelers, budget, and what matters to you…"
         rows={2}
         maxLength={4_000}
         required
@@ -51,9 +51,9 @@ export function MissionInput({
           }
         }}
       />
-      <div className="composer-meta"><span>Be specific about what matters most.</span><span className="char-count">{goal.length.toLocaleString()} / 4,000</span></div>
+      <div className="composer-meta"><span>Include your route or destination, dates, and travel preferences.</span><span className="char-count">{goal.length.toLocaleString()} / 4,000</span></div>
       <details className="constraint-options">
-        <summary><SlidersHorizontal size={14} aria-hidden="true" /> Add optional constraints <ChevronDown className="constraint-chevron" size={14} aria-hidden="true" /></summary>
+        <summary><SlidersHorizontal size={14} aria-hidden="true" /> Set travel constraints <ChevronDown className="constraint-chevron" size={14} aria-hidden="true" /></summary>
         <div className="constraint-fields">
           <label className="constraint-field" htmlFor="mission-budget"><span className="field-label">Maximum budget</span>
             <div className="budget-input-row"><select aria-label="Budget currency" value={constraints.currency} onChange={(event) => onConstraintsChange({ ...constraints, currency: event.target.value })} disabled={busy}>

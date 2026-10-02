@@ -12,6 +12,7 @@ import type { GeminiFunctionCallingClient } from '../src/services/gemini/types.j
 import {
   createMissionExecutionService,
   missingMissionApiKeys,
+  validateMissionRequest,
   type MissionExecutionService,
 } from '../src/services/missions/MissionExecutionService.js'
 import { extractMissionRequirements } from '../src/services/missions/MissionRequirementExtractor.js'
@@ -151,7 +152,7 @@ test('mission preserves source, URL, tool, title, and data from a SerpApi result
     },
   })
 
-  const state = await service.execute({ goal: 'Find public libraries' })
+  const state = await service.execute({ goal: 'Find travel research about public libraries' })
 
   assert.equal(state.status, 'completed')
   assert.deepEqual(state.evidence[0], {
@@ -188,14 +189,14 @@ test('mission attributes unlinked Maps evidence to SerpApi', async () => {
               id: 'maps-no-link-step',
               toolId: 'google-maps-places',
               objective: 'Find a place',
-              input: { query: 'museum' },
+              input: { query: 'museum', location: 'Portland' },
             }],
           }
         : { goalId: request.goal.id, decision: 'complete', steps: [], finalResult: 'Place retained' },
     },
   })
 
-  const state = await service.execute({ goal: 'Find a museum' })
+  const state = await service.execute({ goal: 'Find a museum in Portland' })
 
   assert.equal(state.status, 'completed')
   assert.equal(state.evidence[0]?.source, 'SerpApi')
@@ -256,7 +257,7 @@ test('terminal budget violation returns a no-match result with the cheapest opti
   })
 
   const state = await service.execute({
-    goal: 'Find a flight under INR 8000',
+    goal: 'Find a flight from Bengaluru to Hyderabad on October 10, 2026 under INR 8000',
     constraints: { budget: { max: 8000, currency: 'INR' } },
   })
 
@@ -541,7 +542,7 @@ test('POST /api/missions rejects malformed requests with 400', async () => {
   assert.match(payload.error, /goal must be a non-empty string/)
 })
 
-test('POST /api/missions exposes an incomplete fallback result when Gemini returns no usable plan', async () => {
+test('POST /api/missions asks for a destination when a trip is underspecified', async () => {
   const service = missionService({
     createPlan: () => { throw new Error('Gemini returned no function call') },
   })
@@ -557,11 +558,11 @@ test('POST /api/missions exposes an incomplete fallback result when Gemini retur
   })
 
   assert.equal(payload.status, 'needs_information')
-  assert.equal((payload.error as { code: string }).code, 'mission')
-  assert.match((payload.error as { message: string }).message, /Gemini returned no function call/)
-  assert.match((payload.error as { message: string }).message, /capability-based fallback/)
-  assert.ok(Array.isArray(payload.plan) && payload.plan.length > 0)
-  assert.ok(Array.isArray(payload.toolCalls) && payload.toolCalls.length > 0)
+  assert.deepEqual(payload.result && (payload.result as { missingInformation: string[] }).missingInformation, [
+    'Specify the destination before planning a trip.',
+  ])
+  assert.deepEqual(payload.plan, [])
+  assert.deepEqual(payload.toolCalls, [])
 })
 
 const travelMission = 'Plan my 2-day Hyderabad trip from Bengaluru for an interview. Keep the total budget under ₹8,000 and find flights, a hotel, and nearby food options.'
@@ -582,8 +583,64 @@ test('travel mission extracts budget, duration, route, currency, and required to
     'google-flights',
     'google-hotels',
     'google-maps-places',
+    'google-search',
   ])
   assert.deepEqual(extracted.explicitDates, [])
+})
+
+test('travel-only mission validation rejects unrelated goals and accepts destination research', () => {
+  assert.throws(
+    () => validateMissionRequest({ goal: 'Compare compact cameras under $900' }),
+    /travel-only AI agent/,
+  )
+  assert.equal(
+    validateMissionRequest({ goal: 'Research travel advisories for Goa' }).goal,
+    'Research travel advisories for Goa',
+  )
+})
+
+test('place and hotel fallback inputs retain the destination, travelers, and preferences', () => {
+  const registry = new ToolRegistry()
+  registerSerpApiTools(registry, { apiKey: '', mockMode: true })
+  const goal = 'Find highly rated restaurants and cafes in Bengaluru'
+  const extracted = extractMissionRequirements(goal, { requiredPreferences: ['outdoor seating'] }, registry.list())
+  const missionGoal = {
+    id: 'place-search',
+    description: goal,
+    metadata: {
+      missionConstraints: extracted.constraints,
+      missionRequirements: { ...extracted, passengers: 3 },
+    },
+  }
+
+  assert.equal(extracted.constraints.location, 'Bengaluru')
+  assert.deepEqual(registry.get('google-maps-places')?.createInput({ goal: missionGoal, observations: [] }), {
+    query: 'Find highly rated restaurants and cafes in Bengaluru outdoor seating',
+    location: 'Bengaluru',
+  })
+  assert.deepEqual(registry.get('google-hotels')?.createInput({
+    goal: {
+      ...missionGoal,
+      description: 'Find a hotel in Goa',
+      metadata: {
+        missionConstraints: {
+          location: 'Goa',
+          date: { checkIn: '2026-11-01', checkOut: '2026-11-04' },
+          requiredPreferences: ['pool', 'breakfast'],
+          budget: { currency: 'INR' },
+        },
+        missionRequirements: { passengers: 3, explicitDates: ['2026-11-01', '2026-11-04'] },
+      },
+    },
+    observations: [],
+  }), {
+    destination: 'Goa',
+    checkIn: '2026-11-01',
+    checkOut: '2026-11-04',
+    guests: 3,
+    preferences: ['pool', 'breakfast'],
+    currency: 'INR',
+  })
 })
 
 test('sample flight mission extracts its written date, route, and passenger count', () => {
@@ -613,6 +670,20 @@ test('sample flight mission extracts its written date, route, and passenger coun
     travelClass: 'economy',
     currency: 'INR',
   })
+})
+
+test('arrow-route flight requests extract only the two city names', () => {
+  const extracted = extractMissionRequirements(
+    'Bengaluru → Hyderabad flights for 2 passengers',
+    {},
+    [],
+  )
+
+  assert.deepEqual(extracted.constraints.route, {
+    origin: 'Bengaluru',
+    destination: 'Hyderabad',
+  })
+  assert.equal(extracted.passengers, 2)
 })
 
 test('explicit travel dates stay unchanged when relative date wording is also present', () => {
@@ -749,6 +820,7 @@ test('agent selects every requested tool across iterations and does not falsely 
             currency: 'INR',
           },
           'google-maps-places': { query: 'nearby food options', location: 'Hyderabad' },
+          'google-search': { query: 'Hyderabad travel guide', location: 'Hyderabad' },
         }
         return {
           goalId: request.goal.id,
@@ -781,6 +853,7 @@ test('agent selects every requested tool across iterations and does not falsely 
     'google-flights',
     'google-hotels',
     'google-maps-places',
+    'google-search',
   ]))
   assert.ok(state.missingInformation.some((item) => /total trip cost/i.test(item)))
   const assessments = Object.fromEntries(

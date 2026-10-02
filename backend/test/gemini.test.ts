@@ -139,6 +139,50 @@ test('model completion preserves explicit assumptions separately from its summar
   })
 })
 
+test('model completion preserves a structured day-by-day itinerary', () => {
+  const plan = parseGeminiFunctionCall(
+    {
+      name: 'mission_complete',
+      arguments: {
+        summary: 'A three-day itinerary is ready.',
+        itinerary: [
+          { day: 1, title: 'Arrival', activities: ['Check in', 'Explore the nearby market'] },
+          { day: 2, activities: ['Visit the fort'], notes: 'Confirm opening hours before visiting.' },
+        ],
+      },
+    },
+    goal.id,
+    [],
+    0,
+  )
+
+  assert.deepEqual(plan.finalResult, {
+    summary: 'A three-day itinerary is ready.',
+    itinerary: [
+      { day: 1, title: 'Arrival', activities: ['Check in', 'Explore the nearby market'] },
+      { day: 2, activities: ['Visit the fort'], notes: 'Confirm opening hours before visiting.' },
+    ],
+  })
+})
+
+test('model completion rejects malformed itinerary data', () => {
+  assert.throws(
+    () => parseGeminiFunctionCall(
+      {
+        name: 'mission_complete',
+        arguments: {
+          summary: 'An itinerary is ready.',
+          itinerary: [{ day: 'first', activities: ['Explore'] }],
+        },
+      },
+      goal.id,
+      [],
+      0,
+    ),
+    /itinerary must contain day numbers and activity lists/,
+  )
+})
+
 test('planner sends the mission context and chooses the model-selected registered tool', async () => {
   const alternativeTool: typeof mockGoalTool = {
     ...mockGoalTool,

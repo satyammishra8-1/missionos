@@ -173,7 +173,22 @@ export function createGoogleMapsPlacesTool(
       additionalProperties: false,
     },
     supports: (goal: MissionGoal) => goal.description.trim().length > 0,
-    createInput: ({ goal }) => ({ query: goal.description }),
+    createInput: ({ goal }) => {
+      const constraints = isRecord(goal.metadata?.missionConstraints)
+        ? goal.metadata.missionConstraints
+        : {}
+      const route = isRecord(constraints.route) ? constraints.route : {}
+      const location = typeof constraints.location === 'string'
+        ? constraints.location
+        : typeof route.destination === 'string' ? route.destination : undefined
+      const preferences = Array.isArray(constraints.requiredPreferences)
+        ? constraints.requiredPreferences.filter((value): value is string => typeof value === 'string')
+        : []
+      return {
+        query: [goal.description, ...preferences].join(' '),
+        ...(location ? { location } : {}),
+      }
+    },
     parseInput,
     execute: async (input) => ({
       query: input.query,

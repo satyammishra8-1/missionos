@@ -1,6 +1,6 @@
 # MissionOS
 
-MissionOS is an open-source AI agent project. This repository contains a React frontend, a modular Express API, and an agent foundation with a Gemini planner and a SerpApi Google Search tool. Database integrations are not included yet.
+MissionOS is an AI travel agent for flight and hotel searches, local places, destination research, and trip planning. Its React frontend presents travel options, evidence, constraints, and itinerary results from a modular Express API powered by Gemini and live SerpApi search tools.
 
 ## Requirements
 
@@ -60,18 +60,18 @@ Register tools with `ToolRegistry`, then create a model-backed agent with `creat
 
 ## Mission Execution
 
-Submit a goal and optional JSON constraints to `POST /api/missions`:
+Submit a travel goal and optional JSON constraints to `POST /api/missions`:
 
 ```json
 {
-	"goal": "Plan an accessible weekend trip to Montreal",
-	"constraints": { "budget": 1200, "accessible": true }
+  "goal": "Find a flight from Bengaluru to Hyderabad on October 10, 2026 for 2 passengers",
+  "constraints": { "budget": { "max": 20000, "currency": "INR" } }
 }
 ```
 
-The Gemini planner dynamically selects registered search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. A completed mission requires useful results from every tool capability requested in the goal and satisfied deterministic constraints. The response includes `missionId`, `status`, plan steps, tool calls, replans, findings, source evidence, and a `result` separating `verifiedFacts`, `assumptions`, and `missingInformation`. Each mission is limited to 12 tool iterations, 8 replans, and 60 seconds by default. Missions without both `GEMINI_API_KEY` and `SERPAPI_API_KEY` return a configuration failure; mock results are not accepted as real mission completion.
+The mission API accepts travel requests only. The Gemini planner dynamically selects registered Search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. For trip planning, Gemini can combine tool results into a practical day-by-day itinerary. A completed mission requires useful results from every requested tool capability and satisfied deterministic constraints. The response includes `missionId`, `status`, plan steps, tool calls, replans, findings, source evidence, and a `result` separating `verifiedFacts`, `assumptions`, `missingInformation`, and constraint assessments. Each mission is limited to 12 tool iterations, 8 replans, and 60 seconds by default. Missions without both `GEMINI_API_KEY` and `SERPAPI_API_KEY` return a configuration failure; mock results are not accepted as real mission completion.
 
-Constraints are supplied as a JSON object and budget, duration, route, and requested tool capabilities are also extracted from the goal. The deterministic evaluator supports `budget` as a number or `{ "max": number, "currency": "INR", "scope": "total" }`, `date` as an ISO date or date-field object, `durationDays`, `route` with origin/destination, `location`, `time`, `requiredPreferences`, and `requiredTools`. Each is reported as `satisfied`, `violated`, or `unknown`; violations and unknowns block completion and trigger replanning. Missing exact dates are requested rather than invented. A total budget remains unknown unless evidence contains a comparable aggregate trip cost; individual flight and hotel prices are not assumed to be a verified total.
+Constraints are supplied as a JSON object and budget, duration, route, destination, dates, passenger count, and requested tool capabilities are also extracted from the goal. The deterministic evaluator supports `budget` as a number or `{ "max": number, "currency": "INR", "scope": "total" }`, `date` as an ISO date or date-field object, `durationDays`, `route` with origin/destination, `location`, `time`, `requiredPreferences`, and `requiredTools`. Each is reported as `satisfied`, `violated`, or `unknown`; violations and unknowns block completion and trigger replanning. Missing exact dates are requested rather than invented. A total budget remains unknown unless evidence contains a comparable aggregate trip cost; individual flight and hotel prices are not assumed to be a verified total.
 
 ## SerpApi Search Tools
 
@@ -90,5 +90,7 @@ Google Search accepts a query, optional location, and optional result count. Goo
 - Google Hotels: destination, check-in/check-out dates, guest count, and optional preference terms. Results include hotel name, available price/rating/review/location/amenities fields, and a hotel search link. Preferences are appended to the destination search query.
 
 The Maps radius is sent as twice the requested distance for Google Maps viewport height, and result limits are applied locally. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
+
+The frontend includes travel examples for comparing a Bengaluru–Hyderabad flight, planning a multi-day Goa trip, finding Bengaluru restaurants, and combining flights with a hotel. Include exact travel dates for date-dependent searches; MissionOS will ask for them rather than inventing dates.
 
 Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.

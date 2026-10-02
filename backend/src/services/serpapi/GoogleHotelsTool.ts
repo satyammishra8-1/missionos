@@ -211,15 +211,24 @@ export function createGoogleHotelsTool(
       const route = isRecord(constraints.route) ? constraints.route : {}
       const dates = isRecord(constraints.date) ? constraints.date : {}
       const budget = isRecord(constraints.budget) ? constraints.budget : {}
+      const requirements = isRecord(goal.metadata?.missionRequirements)
+        ? goal.metadata.missionRequirements
+        : {}
       const explicitDates = isRecord(goal.metadata?.missionRequirements) &&
         Array.isArray(goal.metadata.missionRequirements.explicitDates)
         ? goal.metadata.missionRequirements.explicitDates.filter((value): value is string => typeof value === 'string')
         : []
+      const preferences = Array.isArray(constraints.requiredPreferences)
+        ? constraints.requiredPreferences.filter((value): value is string => typeof value === 'string')
+        : []
       return {
-        destination: typeof route.destination === 'string' ? route.destination : goal.description,
+        destination: typeof route.destination === 'string'
+          ? route.destination
+          : typeof constraints.location === 'string' ? constraints.location : goal.description,
         checkIn: typeof dates.checkIn === 'string' ? dates.checkIn : explicitDates[0] ?? '',
         checkOut: typeof dates.checkOut === 'string' ? dates.checkOut : explicitDates[1] ?? '',
-        guests: 1,
+        guests: typeof requirements.passengers === 'number' ? requirements.passengers : 1,
+        ...(preferences.length ? { preferences } : {}),
         ...(typeof budget.currency === 'string' ? { currency: budget.currency } : {}),
       }
     },

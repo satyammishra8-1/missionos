@@ -22,6 +22,25 @@ const missionCompleteSchema: JsonSchema = {
   type: 'object',
   properties: {
     summary: { type: 'string', description: 'Actionable summary of the completed mission.' },
+    itinerary: {
+      type: 'array',
+      description: 'Optional evidence-informed day-by-day itinerary for a trip-planning request.',
+      items: {
+        type: 'object',
+        properties: {
+          day: { type: 'integer', description: 'Day number in the itinerary.' },
+          title: { type: 'string', description: 'Short title for this day.' },
+          activities: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Suggested activities, ordered for the day.',
+          },
+          notes: { type: 'string', description: 'Optional practical note or unverified detail.' },
+        },
+        required: ['day', 'activities'],
+        additionalProperties: false,
+      },
+    },
     assumptions: {
       type: 'array',
       items: { type: 'string' },
@@ -59,6 +78,25 @@ function stringList(value: unknown, fieldName: string): readonly string[] {
   if (value === undefined) return []
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
     throw new Error(`Gemini function argument ${fieldName} must be an array of strings`)
+  }
+  return value
+}
+
+function itineraryList(value: unknown): readonly Record<string, unknown>[] | undefined {
+  if (value === undefined) return undefined
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) =>
+      isRecord(item) &&
+      typeof item.day === 'number' &&
+      Number.isInteger(item.day) &&
+      item.day > 0 &&
+      Array.isArray(item.activities) &&
+      item.activities.length > 0 &&
+      item.activities.every((activity) => typeof activity === 'string'),
+    )
+  ) {
+    throw new Error('Gemini function argument itinerary must contain day numbers and activity lists')
   }
   return value
 }
@@ -111,7 +149,14 @@ export function parseGeminiFunctionCall(
       missingInformation: stringList(args.missing_information, 'missing_information'),
       finalResult: (() => {
         const assumptions = stringList(args.assumptions, 'assumptions')
-        return assumptions.length ? { summary: args.summary, assumptions } : args.summary
+        const itinerary = itineraryList(args.itinerary)
+        return assumptions.length || itinerary
+          ? {
+              summary: args.summary,
+              ...(itinerary ? { itinerary } : {}),
+              ...(assumptions.length ? { assumptions } : {}),
+            }
+          : args.summary
       })(),
     }
   }
@@ -207,6 +252,7 @@ export class GeminiPlannerStrategy implements PlanningStrategy {
         'Review prior tool observations before each decision and do not repeat a successful tool unless the evidence justifies it.',
         'Prioritize tool IDs listed in the requiredTools constraint until each has returned useful evidence. Do not treat a plan or a tool call as evidence that the requested work was completed.',
         'Use the requested currency from the budget constraint in price-sensitive tool inputs. Never invent exact travel dates; if a tool requires dates that were not provided, request them through mission_replan.',
+        'For trip-planning requests, include a practical day-by-day itinerary in mission_complete when the evidence supports one. Separate verified places from general suggestions and call out unverified details as assumptions.',
         'Assess every constraint against the available evidence. If a constraint is violated, evidence is insufficient, or required information is missing, call mission_replan or select another registered tool; do not claim completion without evidence.',
         'Call a registered mission_tool function to investigate or act, mission_replan when the approach or missing information requires a new plan, or mission_complete only when there is enough evidence to provide a useful result.',
         'Never claim a tool ran; the application executes registered tools after validating your function call.',

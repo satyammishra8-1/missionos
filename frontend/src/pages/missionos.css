@@ -288,6 +288,9 @@ kbd { padding: 2px 4px; border: 1px solid #e1e1d8; border-radius: 3px; backgroun
 .result-seal[data-state='failed'], .result-seal[data-state='no_match'] { border-color: #ecd4ce; background: var(--red-soft); color: var(--red); }
 .result-seal[data-state='needs_information'] { border-color: #ead8b7; background: var(--amber-soft); color: #855b25; }
 .result-summary { max-width: 850px; margin: 11px 0 0; color: #484c44; font-family: 'Newsreader', Georgia, serif; font-size: 19px; line-height: 1.45; overflow-wrap: anywhere; }
+.result-assumptions { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--amber-soft); }
+.result-assumptions h3 { margin: 0; color: var(--ink); font-size: 10px; font-weight: 700; }
+.result-assumptions ul { margin: 6px 0 0; padding-left: 17px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .failure-guidance { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .failure-reason { padding-top: 12px; border-top: 1px solid var(--line); }
 .failure-reason .detail-label, .constraint-explanation .detail-label { color: #81847a; font-size: 9px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
@@ -336,6 +339,13 @@ kbd { padding: 2px 4px; border: 1px solid #e1e1d8; border-radius: 3px; backgroun
 .result-details div { min-width: 0; }
 .result-details dt { color: #8b8d83; font-size: 8px; font-weight: 700; text-transform: uppercase; }
 .result-details dd { margin: 4px 0 0; color: #4e524a; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.result-itinerary { margin-top: 17px; padding-top: 14px; border-top: 1px solid var(--line); }
+.result-itinerary > h3 { margin: 0 0 10px; color: #42463e; font-size: 12px; font-weight: 650; }
+.result-itinerary > ol { margin: 0; padding-left: 19px; display: grid; gap: 11px; }
+.result-itinerary > ol > li { padding-left: 3px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.result-itinerary strong { color: var(--ink); font-size: 11px; }
+.result-itinerary ul { margin: 5px 0 0; padding-left: 17px; }
+.result-itinerary p { margin: 5px 0 0; color: var(--subtle); }
 .generic-result { margin: 0; padding: 12px; border-radius: 5px; background: #f7f7f2; color: #62665c; font-size: 11px; line-height: 1.5; }
 .source-link, .evidence-item > a { margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 10px; font-weight: 650; text-decoration: none; }
 .source-link:hover, .evidence-item > a:hover { color: var(--accent-deep); text-decoration: underline; text-underline-offset: 3px; }
@@ -504,6 +514,7 @@ kbd { padding: 2px 4px; border: 1px solid #e1e1d8; border-radius: 3px; backgroun
 .workspace-shell[data-theme='dark'] .final-result .section-title,
 .workspace-shell[data-theme='dark'] .workspace-section .section-title,
 .workspace-shell[data-theme='dark'] .result-card h3,
+.workspace-shell[data-theme='dark'] .result-itinerary > h3,
 .workspace-shell[data-theme='dark'] .constraint-title-row h3,
 .workspace-shell[data-theme='dark'] .activity-title-row h3,
 .workspace-shell[data-theme='dark'] .evidence-item h3 { color: var(--ink); }
@@ -515,6 +526,8 @@ kbd { padding: 2px 4px; border: 1px solid #e1e1d8; border-radius: 3px; backgroun
 .workspace-shell[data-theme='dark'] .plan-objective,
 .workspace-shell[data-theme='dark'] .replan-item p,
 .workspace-shell[data-theme='dark'] .result-summary,
+.workspace-shell[data-theme='dark'] .result-itinerary > ol > li,
+.workspace-shell[data-theme='dark'] .result-itinerary p,
 .workspace-shell[data-theme='dark'] .failure-reason p { color: var(--muted); }
 .workspace-shell[data-theme='dark'] .nav-link,
 .workspace-shell[data-theme='dark'] .system-label,

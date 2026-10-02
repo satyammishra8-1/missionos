@@ -18,29 +18,46 @@ export function FinalResult({ result, status, error, toolCalls }: FinalResultPro
   const alternatives = Array.isArray(final?.alternatives)
     ? final.alternatives.filter((item): item is string => typeof item === 'string')
     : []
+  const itinerary = parseItinerary(final?.itinerary)
   const failure = status === 'failed' ? describeFailure(error, toolCalls) : undefined
   const heading = status === 'no_match' ? 'No matching option found'
     : status === 'needs_information' ? 'A little more information is needed'
       : status === 'failed' ? 'We couldn’t finish this mission'
-        : 'Your mission result'
+      : 'Your travel result'
   const summary = status === 'failed'
-    ? 'MissionOS couldn’t find enough verified information to complete this request.'
+    ? 'MissionOS couldn’t find enough verified travel information to complete this request.'
     : result.summary !== null && result.summary !== undefined
     ? displaySummary(result.summary)
       : status === 'needs_information'
-        ? 'MissionOS couldn’t verify enough information to complete this request.'
-        : 'Mission findings are ready below.'
+        ? 'MissionOS couldn’t verify enough travel information to complete this request.'
+        : 'Travel findings are ready below.'
 
   return (
     <section className="final-result" data-state={status} aria-labelledby="final-result-heading">
       <div className="section-heading-row">
         <div>
-          <p className="section-kicker">MISSION OUTCOME</p>
+          <p className="section-kicker">TRAVEL SUMMARY</p>
           <h2 id="final-result-heading" className="section-title">{heading}</h2>
         </div>
         <span className="result-seal" data-state={status}>{status === 'completed' ? 'Ready' : status === 'no_match' ? 'No match' : status === 'needs_information' ? 'Needs details' : status === 'failed' ? 'Not completed' : 'In progress'}</span>
       </div>
       <p className="result-summary">{summary}</p>
+
+      {result.assumptions.length > 0 && <div className="result-assumptions">
+        <h3>Assumptions and unverified details</h3>
+        <ul>{result.assumptions.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul>
+      </div>}
+
+      {itinerary.length > 0 && <section className="result-itinerary" aria-labelledby="itinerary-heading">
+        <h3 id="itinerary-heading">Suggested itinerary</h3>
+        <ol>
+          {itinerary.map((day) => <li key={day.day}>
+            <strong>Day {day.day}{day.title ? ` · ${day.title}` : ''}</strong>
+            <ul>{day.activities.map((activity, index) => <li key={`${day.day}-${index}`}>{activity}</li>)}</ul>
+            {day.notes && <p>{day.notes}</p>}
+          </li>)}
+        </ol>
+      </section>}
 
       {status === 'no_match' && <div className="no-match-details">
         {constraint && <div className="constraint-explanation">
@@ -77,6 +94,30 @@ export function FinalResult({ result, status, error, toolCalls }: FinalResultPro
       </div>}
     </section>
   )
+}
+
+interface ItineraryDay {
+  day: number
+  title?: string
+  activities: readonly string[]
+  notes?: string
+}
+
+function parseItinerary(value: unknown): ItineraryDay[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): ItineraryDay[] => {
+    if (!isRecord(item) || typeof item.day !== 'number' || !Number.isInteger(item.day)) return []
+    const activities = Array.isArray(item.activities)
+      ? item.activities.filter((activity): activity is string => typeof activity === 'string')
+      : []
+    if (activities.length === 0) return []
+    return [{
+      day: item.day,
+      ...(typeof item.title === 'string' ? { title: item.title } : {}),
+      activities,
+      ...(typeof item.notes === 'string' ? { notes: item.notes } : {}),
+    }]
+  })
 }
 
 function humanConstraint(value: unknown): string {

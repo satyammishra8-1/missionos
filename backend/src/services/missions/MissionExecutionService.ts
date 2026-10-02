@@ -18,6 +18,7 @@ import {
 import { FallbackPlanningStrategy } from '../gemini/GeminiPlannerStrategy.js'
 import { MissionConstraintEvaluator } from './MissionConstraintEvaluator.js'
 import { extractMissionRequirements } from './MissionRequirementExtractor.js'
+import { isTravelMission } from './travelIntent.js'
 import { registerSerpApiTools, type SerpApiOptions } from '../serpapi/index.js'
 
 const maximumGoalLength = 4_000
@@ -122,6 +123,9 @@ export function validateMissionRequest(value: unknown): MissionRequest {
   }
   if (value.goal.trim().length > maximumGoalLength) {
     throw new Error(`goal must be at most ${maximumGoalLength} characters`)
+  }
+  if (!isTravelMission(value.goal)) {
+    throw new Error('MissionOS is a travel-only AI agent. Ask about flights, hotels, places, destination research, or a trip itinerary.')
   }
   if (value.constraints !== undefined && !isRecord(value.constraints)) {
     throw new Error('constraints must be a JSON object')
@@ -491,6 +495,7 @@ export class MissionExecutionService {
         plannerDecidesCompletion: true,
         constraintEvaluator: this.options.constraintEvaluator ?? new MissionConstraintEvaluator(),
         ...this.options.agent,
+        ...(requirements.missingInformation.length > 0 ? { maxReplans: 0 } : {}),
       }
       const primaryPlanningStrategy = this.options.plannerStrategy ?? createGeminiPlanningStrategy({
         ...this.options.gemini,
@@ -502,7 +507,11 @@ export class MissionExecutionService {
       )
       const agent = new Agent(
         registry,
-        new Planner(new UserDateGuardStrategy(planningStrategy, requirements.explicitDates)),
+        new Planner(new UserDateGuardStrategy(
+          planningStrategy,
+          requirements.explicitDates,
+          requirements.missingInformation,
+        )),
         undefined,
         undefined,
         agentOptions,
@@ -526,9 +535,19 @@ class UserDateGuardStrategy implements PlanningStrategy {
   constructor(
     private readonly strategy: PlanningStrategy,
     private readonly explicitDates: readonly string[],
+    private readonly missingInformation: readonly string[],
   ) {}
 
   async createPlan(request: Parameters<PlanningStrategy['createPlan']>[0]): Promise<AgentPlan> {
+    if (this.missingInformation.length > 0) {
+      return {
+        goalId: request.goal.id,
+        decision: 'replan',
+        steps: [],
+        rationale: 'Required travel details are missing, so live searches cannot be run safely yet.',
+        missingInformation: this.missingInformation,
+      }
+    }
     const plan = await this.strategy.createPlan(request)
     if (plan.decision === 'replan' || plan.decision === 'complete') return plan
 

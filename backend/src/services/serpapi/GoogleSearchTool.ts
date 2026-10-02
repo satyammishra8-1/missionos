@@ -112,7 +112,16 @@ export function createGoogleSearchTool(client: SerpApiClient): ToolDefinition<Go
       additionalProperties: false,
     },
     supports: (goal: MissionGoal) => goal.description.trim().length > 0,
-    createInput: ({ goal }) => ({ query: goal.description }),
+    createInput: ({ goal }) => {
+      const constraints = goal.metadata?.missionConstraints
+      const location = isRecord(constraints) && typeof constraints.location === 'string'
+        ? constraints.location
+        : undefined
+      return {
+        query: goal.description,
+        ...(location ? { location } : {}),
+      }
+    },
     parseInput,
     execute: async (input) => ({
       query: input.query,
