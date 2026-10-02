@@ -13,7 +13,8 @@ export function displaySummary(value: unknown): string {
 }
 
 export function formatData(value: unknown): string {
-  return typeof value === 'string' ? value : 'More details are available in the results below.'
+  if (typeof value === 'string') return value
+  return JSON.stringify(value, null, 2) ?? String(value)
 }
 
 export function displayToolName(toolId: string): string {

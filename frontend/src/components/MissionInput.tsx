@@ -28,6 +28,7 @@ export function MissionInput({
   return (
     <form
       className="mission-input"
+      aria-busy={busy}
       onSubmit={(event) => {
         event.preventDefault()
         onSubmit()
@@ -44,6 +45,8 @@ export function MissionInput({
         maxLength={4_000}
         required
         disabled={busy}
+        aria-describedby={`mission-goal-hint mission-goal-count${error ? ' mission-goal-error' : ''}`}
+        aria-invalid={Boolean(error)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
@@ -51,7 +54,7 @@ export function MissionInput({
           }
         }}
       />
-      <div className="composer-meta"><span>Include your route or destination, dates, and travel preferences.</span><span className="char-count">{goal.length.toLocaleString()} / 4,000</span></div>
+      <div className="composer-meta"><span id="mission-goal-hint">Include your route or destination, dates, and travel preferences.</span><span className="char-count" id="mission-goal-count">{goal.length.toLocaleString()} / 4,000</span></div>
       <details className="constraint-options">
         <summary><SlidersHorizontal size={14} aria-hidden="true" /> Set travel constraints <ChevronDown className="constraint-chevron" size={14} aria-hidden="true" /></summary>
         <div className="constraint-fields">
@@ -71,7 +74,7 @@ export function MissionInput({
           {busy ? <><span className="button-spinner" aria-hidden="true" />Working</> : <>Run mission <ArrowUpRight size={15} aria-hidden="true" /></>}
         </button>
       </div>
-      {error && <p className="form-error" role="alert">{error}</p>}
+      {error && <p className="form-error" id="mission-goal-error" role="alert">{error}</p>}
     </form>
   )
 }

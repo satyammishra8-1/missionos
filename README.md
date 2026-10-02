@@ -1,6 +1,57 @@
 # MissionOS
 
-MissionOS is an AI travel agent for flight and hotel searches, local places, destination research, and trip planning. Its React frontend presents travel options, evidence, constraints, and itinerary results from a modular Express API powered by Gemini and live SerpApi search tools.
+MissionOS is a travel-only AI agent for researching flights, hotels, places to visit, and destination information. Describe a trip in natural language, add optional constraints, and review the returned travel options, itinerary, constraint assessments, and linked evidence in one workspace.
+
+MissionOS helps with travel research and planning; it does not book travel or guarantee availability, prices, or provider results.
+
+## What it does
+
+- Searches and presents flight options with carrier, flight number, schedule, duration, stops, price, and a Google Flights search link when returned by the provider.
+- Searches hotel options and displays available price, rating, review, location, amenity, and search-link details.
+- Discovers restaurants, attractions, cafes, and other places using Google Maps results.
+- Uses web search for destination research when the selected plan requires it, retaining available source links and attribution.
+- Combines travel findings into a summary and, when returned by the planner, a day-by-day itinerary.
+- Reports constraints as **satisfied**, **violated**, or **unknown**. An unresolved requirement is not represented as a successful match.
+- Separates verified findings, assumptions, missing information, and sources in the result view.
+
+Search examples are provided in the interface. For date-dependent flight and hotel searches, include exact dates; MissionOS asks for missing travel details rather than inventing them.
+
+## Architecture and execution
+
+The application has a React/Vite frontend and a TypeScript/Express backend. The frontend submits a travel mission to `POST /api/missions`; provider credentials remain on the backend.
+
+The backend execution path reuses the existing agent and tool architecture:
+
+1. **Extract requirements.** Mission text and optional JSON constraints are converted into a travel goal, requested capabilities, and deterministic constraint inputs.
+2. **Plan.** Gemini function calling selects among registered tools using the mission, tool schemas, constraints, prior observations, and replan history.
+3. **Execute.** The existing tool executor validates the selected tool input and calls the registered Google Search, Maps/Places, Flights, or Hotels integration.
+4. **Evaluate.** The deterministic constraint evaluator assesses the returned observations. The agent may replan when results fail to satisfy a requirement and may stop to request information when key details are missing.
+5. **Report.** The API returns the plan history, tool calls, findings, replans, evidence, verified facts, assumptions, missing information, constraints, status, and final summary.
+
+The mission endpoint currently returns its response after execution; it does **not** stream intermediate planning or tool events to the browser. The in-progress UI says so rather than presenting simulated activity. The execution trace is populated from the actual returned plan and tool calls.
+
+### Gemini
+
+Gemini is the mission planner and summarizer. It chooses registered tools and uses their returned observations to decide whether to continue, replan, or complete. The agent's deterministic constraint evaluator remains separate from Gemini's planning. A capability-planner fallback is available when the Gemini planner fails, but fallback use does not turn mock provider output into a verified live result.
+
+### SerpApi integrations
+
+The backend registers tools for:
+
+- **Google Flights:** route, departure date, passengers, travel class, optional return date and currency.
+- **Google Hotels:** destination, check-in/out dates, guest count, optional preferences and currency.
+- **Google Maps Places:** place query, optional location and radius, and result limit.
+- **Google Search:** web research query, optional location, and result count.
+
+Returned fields depend on provider results. Links are search or source links; MissionOS does not complete bookings. Provider availability, quotas, supported locations, and result coverage can vary by query.
+
+### Constraints, replanning, and evidence
+
+Constraints can come from the mission text or the optional request object. Supported inputs include budget and currency, trip duration, route, destination/location, dates, passenger count, time, required preferences, and required tool capabilities.
+
+Each evaluated constraint is shown as satisfied, violated, or unknown with its reason. Violations and unresolved requirements can cause another planning attempt; missing required dates or other essential information may instead stop execution and appear in the result. An overall trip budget is not inferred by adding unrelated individual prices: without comparable evidence for the requested total, the assessment remains unknown.
+
+Evidence is collected from tool observations and includes source attribution and URLs when available. Unavailable URLs are omitted; MissionOS does not fabricate source links.
 
 ## Requirements
 
@@ -9,88 +60,82 @@ MissionOS is an AI travel agent for flight and hotel searches, local places, des
 
 ## Setup
 
-From the repository root:
+Install dependencies from the repository root:
 
 ```bash
 npm install
 ```
 
-Copy `backend/.env.example` to `backend/.env`. The frontend can use its defaults, or you can copy `frontend/.env.example` to `frontend/.env` to configure the API base URL.
+Copy `backend/.env.example` to `backend/.env`. Configure backend provider credentials and live-mode settings as needed (see [Environment variables](#environment-variables)). The frontend's default API URL works with the local Vite proxy; `frontend/.env.example` is available if a different API base URL is needed.
 
-## Run in development
+Do not put provider keys in frontend environment variables, source files, or client-visible configuration.
 
-From the repository root, start both applications:
+## Run locally
+
+Start the frontend and backend together from the repository root:
 
 ```bash
 npm run dev
 ```
 
-- Frontend: http://localhost:5173
-- Backend health check: http://localhost:3001/api/health
+- Frontend: <http://localhost:5173>
+- Backend health endpoint: <http://localhost:3001/api/health>
+- Mission endpoint: `POST http://localhost:3001/api/missions`
 
-The Vite development server proxies `/api` requests to the backend. The frontend status page reports whether the API is reachable.
+Vite proxies `/api` requests to the local backend. To start a single service, run `npm run dev --workspace=frontend` or `npm run dev --workspace=backend`.
 
-## Build and lint
-
-```bash
-npm run build
-npm run lint
-```
-
-To run either application separately, use `npm run dev --workspace=frontend` or `npm run dev --workspace=backend` from the repository root.
-
-## Environment variables
-
-The Express API reads `PORT` and `FRONTEND_ORIGIN` from `backend/.env`. The frontend's optional `VITE_API_BASE_URL` is a public API URL only; never put secrets or API keys in frontend environment variables.
-
-## Gemini planner
-
-The backend includes a Gemini function-calling planner. The checked-in environment example uses mock mode, so the agent can run without a key. For live Gemini calls, add a Gemini API key to `backend/.env` and set:
-
-```dotenv
-GEMINI_API_KEY=your-key
-GEMINI_MOCK_MODE=false
-GEMINI_MODEL=gemini-3.8-flash
-GEMINI_FALLBACK_MODE=true
-```
-
-Keep `GEMINI_API_KEY` in the backend environment only; do not use a `VITE_` variable for it. `GEMINI_FALLBACK_MODE=true` falls back to the capability planner if a Gemini request or response parse fails. Set it to `false` to surface those failures instead.
-
-Register tools with `ToolRegistry`, then create a model-backed agent with `createGeminiAgent(registry)` from `backend/src/services/gemini`. Each registered tool can provide an `inputSchema`; the model's selected function call is validated by that tool and executed only through the existing `ToolExecutor`. Gemini receives the mission, constraints, available tool descriptions and schemas, agent-state snapshot, prior observations, and replan history. The mock client selects a compatible tool and completes after observing its result.
-
-## Mission Execution
-
-Submit a travel goal and optional JSON constraints to `POST /api/missions`:
+Example mission request:
 
 ```json
 {
-  "goal": "Find a flight from Bengaluru to Hyderabad on October 10, 2026 for 2 passengers",
-  "constraints": { "budget": { "max": 20000, "currency": "INR" } }
+  "goal": "Find a flight from Bengaluru to Hyderabad on October 10, 2026 for 2 passengers under ₹20,000",
+  "constraints": {
+    "budget": {
+      "max": 20000,
+      "currency": "INR"
+    }
+  }
 }
 ```
 
-The mission API accepts travel requests only. The Gemini planner dynamically selects registered Search, Maps/Places, Flights, and Hotels tools, then can execute more tools, replan, or complete based on observations. For trip planning, Gemini can combine tool results into a practical day-by-day itinerary. A completed mission requires useful results from every requested tool capability and satisfied deterministic constraints. The response includes `missionId`, `status`, plan steps, tool calls, replans, findings, source evidence, and a `result` separating `verifiedFacts`, `assumptions`, `missingInformation`, and constraint assessments. Each mission is limited to 12 tool iterations, 8 replans, and 180 seconds by default. Missions without both `GEMINI_API_KEY` and `SERPAPI_API_KEY` return a configuration failure; mock results are not accepted as real mission completion.
+## Environment variables
 
-Constraints are supplied as a JSON object and budget, duration, route, destination, dates, passenger count, and requested tool capabilities are also extracted from the goal. The deterministic evaluator supports `budget` as a number or `{ "max": number, "currency": "INR", "scope": "total" }`, `date` as an ISO date or date-field object, `durationDays`, `route` with origin/destination, `location`, `time`, `requiredPreferences`, and `requiredTools`. Each is reported as `satisfied`, `violated`, or `unknown`; violations and unknowns block completion and trigger replanning. Missing exact dates are requested rather than invented. A total budget remains unknown unless evidence contains a comparable aggregate trip cost; individual flight and hotel prices are not assumed to be a verified total.
+Configure these in `backend/.env`:
 
-## SerpApi Search Tools
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | Backend port; defaults to `3001`. |
+| `FRONTEND_ORIGIN` | Allowed frontend origin; defaults to `http://localhost:5173`. |
+| `GEMINI_API_KEY` | Backend-only Gemini credential for the model-backed planner. |
+| `GEMINI_MODEL` | Gemini model name; defaults to `gemini-3.8-flash`. |
+| `GEMINI_MOCK_MODE` | Enables the built-in Gemini mock when set to `true` and no API key is configured. Do not use mock mode to assess live-provider behavior. |
+| `GEMINI_FALLBACK_MODE` | Default fallback setting for callers using `createGeminiAgent` without an explicit override. Mission execution applies its own capability-planner fallback strategy. |
+| `SERPAPI_API_KEY` | Backend-only SerpApi credential for Search, Maps, Flights, and Hotels. |
+| `SERPAPI_MOCK_MODE` | Enables the built-in SerpApi mock when set to `true` and no API key is configured. Do not use mock mode to assess live-provider behavior. |
 
-The backend provides a reusable SerpApi client and registered Google Search, Maps/Places, Flights, and Hotels tools. Isolated tool tests can explicitly use a mock client, but production mission execution requires both Gemini and SerpApi API keys and will not complete using mock results. To enable live searches, set the following in `backend/.env`:
+`VITE_API_BASE_URL` is an optional public frontend setting for the API base URL. It must never contain provider credentials.
 
-```dotenv
-SERPAPI_API_KEY=your-key
-SERPAPI_MOCK_MODE=false
+Real mission execution requires both provider keys and does not accept mock results as real mission completion. Keep `.env` files private and out of version control.
+
+## Validation
+
+From the repository root:
+
+```bash
+npm run lint --workspace=frontend
+npm run build --workspace=frontend
+npm test --workspace=backend
+npm run build --workspace=backend
+npm run lint --workspace=backend
 ```
 
-Keep `SERPAPI_API_KEY` in the backend environment only; never use a `VITE_` variable for it. Register the provider with `registerSerpApiTools(registry)` from `backend/src/services/serpapi`.
+Backend tests use mock clients or injected responses where appropriate; those tests do not by themselves verify external API availability. The frontend currently has lint and build checks but no dedicated automated test script.
 
-Google Search accepts a query, optional location, and optional result count. Google Maps Places accepts a query, optional location and radius, and optional result limit. The travel tools accept:
+## Limitations
 
-- Google Flights: departure, destination, departure date, optional return date, passengers, and travel class (`economy`, `premium_economy`, `business`, or `first`). Results include airlines, flight numbers, departure/arrival times, duration, stops, price, and a Google Flights link. A return date is included in the round-trip search.
-- Google Hotels: destination, check-in/check-out dates, guest count, and optional preference terms. Results include hotel name, available price/rating/review/location/amenities fields, and a hotel search link. Preferences are appended to the destination search query.
-
-The Maps radius is sent as twice the requested distance for Google Maps viewport height, and result limits are applied locally. Tests use mock clients and injected fetch responses, so they do not make live SerpApi requests.
-
-The frontend includes travel examples for comparing a Bengaluru–Hyderabad flight, planning a multi-day Goa trip, finding Bengaluru restaurants, and combining flights with a hotel. Include exact travel dates for date-dependent searches; MissionOS will ask for them rather than inventing dates.
-
-Run backend checks with `npm run build --workspace=backend`, `npm run lint --workspace=backend`, and `npm test --workspace=backend`.
+- Provider responses can be incomplete, unavailable, rate-limited, or change after a search. Displayed prices and availability should be rechecked with the provider before booking.
+- MissionOS provides search and planning links, not booking, payment, or reservation services.
+- Exact dates are needed for searches that depend on travel dates. The planner should request missing required information instead of guessing.
+- Some constraints may remain unknown when the returned evidence cannot support a deterministic assessment, including an aggregate budget based only on individual item prices.
+- Intermediate agent events are not streamed; the UI receives the execution trace with the completed API response.
+- A successful software build or mocked test does not certify live-provider behavior for every route, destination, date, or query.

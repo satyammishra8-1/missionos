@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Compass, MapPin, Moon, Orbit, Plane, Plus, Search, Sparkles, Sun } from 'lucide-react'
+import { ArrowUpRight, BedDouble, Compass, MapPin, Moon, Orbit, Plane, Plus, Sparkles, Sun } from 'lucide-react'
 import { ConstraintPanel } from '../components/ConstraintPanel'
 import { EvidencePanel } from '../components/EvidencePanel'
 import { FinalResult } from '../components/FinalResult'
@@ -93,7 +93,7 @@ export function HomePage() {
           <span className="brand-symbol" aria-hidden="true"><Orbit size={18} strokeWidth={2.1} /></span>
           <span>Mission<span className="brand-light">OS</span></span>
         </div>
-        <span className="system-label"><span className="system-dot" /> AI TRAVEL AGENT</span>
+        <span className="system-label"><span className="system-dot" aria-hidden="true" /> AI TRAVEL AGENT</span>
         <nav className="header-nav" aria-label="Main navigation">
           <a className="nav-link" href="#top">Home</a>
           <a className="nav-link" href="#examples">Explore</a>
@@ -108,12 +108,12 @@ export function HomePage() {
           <section className="landing-heading">
             <span className="landing-eyebrow"><Sparkles size={13} aria-hidden="true" /> YOUR AI TRAVEL AGENT</span>
             <h1>Make the most<br /><span>of your next trip.</span></h1>
-            <p>Compare flights and stays, discover places, and shape practical itineraries from live travel searches and evidence.</p>
+            <p>Search flights and stays, discover local places, and plan practical trips with travel results, clear constraints, and source links.</p>
           </section>
 
           {pageState.status === 'error' && <div className="request-error" role="alert">
             <div><strong>Mission couldn’t be started</strong><p>{pageState.message}</p></div>
-            <div className="request-error-actions"><span>Check your connection or try again.</span><button className="new-mission-button" type="button" onClick={resetMission}><Plus size={14} aria-hidden="true" /> New mission</button></div>
+            <div className="request-error-actions"><span>Review the message above before retrying.</span><button className="new-mission-button" type="button" onClick={resetMission}><Plus size={14} aria-hidden="true" /> New mission</button></div>
           </div>}
 
           <MissionInput
@@ -130,10 +130,10 @@ export function HomePage() {
             <div className="examples-heading"><h2 id="examples-title">Try a travel mission</h2><span>Choose one to make it yours</span></div>
             <div className="example-grid">
               {[
-                { category: 'FLIGHTS', title: 'Bengaluru → Hyderabad flights for 2 passengers within my budget.', icon: Plane, symbol: 'flight' },
-                { category: 'TRIP PLANNING', title: 'Plan a 3-day Goa trip with a hotel, attractions, and activities.', icon: Compass, symbol: 'plan' },
-                { category: 'PLACES', title: 'Find highly rated restaurants and cafes in Bengaluru.', icon: MapPin, symbol: 'local' },
-                { category: 'FLIGHT + HOTEL', title: 'Plan a trip from Bengaluru to Goa with flights and a hotel.', icon: Search, symbol: 'research' },
+                { category: 'FLIGHT SEARCH', title: 'Find Bengaluru → Hyderabad flights for 2 on October 10, 2026 under ₹20,000.', icon: Plane, symbol: 'flight' },
+                { category: 'HOTEL SEARCH', title: 'Find a Goa hotel for 2, November 10–13, 2026, with breakfast and a pool.', icon: BedDouble, symbol: 'research' },
+                { category: 'RESTAURANTS & LOCAL', title: 'Find highly rated restaurants near Koramangala, Bengaluru.', icon: MapPin, symbol: 'local' },
+                { category: 'COMPLETE TRIP', title: 'Plan a 3-day Bengaluru → Goa trip for 2, October 10–12, 2026, under ₹30,000 with flights, hotel, and places to visit.', icon: Compass, symbol: 'plan' },
               ].map((example) => <button className="example-card" type="button" key={example.title} onClick={() => setGoal(example.title)}>
                 <span className={`example-symbol example-symbol-${example.symbol}`} aria-hidden="true">
                   <example.icon size={16} strokeWidth={1.8} />
@@ -149,12 +149,9 @@ export function HomePage() {
           <MissionHeading goal={submittedGoal} status="running" startedAt={missionStartedAt} onReset={resetMission} />
           <div className="waiting-panel" role="status" aria-live="polite">
             <span className="waiting-spinner" aria-hidden="true" />
-            <div><strong>Searching for travel options</strong><p>The service returns its travel plan, live searches, and findings together when execution finishes. No live tool updates are available yet.</p></div>
+            <div><strong>Mission in progress</strong><p>The mission request is in progress. Planning and tool activity are not streamed by the API; the execution trace will appear when the response is ready.</p></div>
           </div>
-          <div className="execution-placeholder">
-            <span className="placeholder-kicker">EXECUTION TRACE</span>
-            <p>Returned planning and tool activity will appear here.</p>
-          </div>
+          <MissionStages busy />
         </section>}
 
         {response && missionStartedAt !== undefined && <section className="active-mission" aria-label="Mission execution workspace">
@@ -186,14 +183,17 @@ export function HomePage() {
 
 function friendlyError(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+  if (/quota|rate.?limit|too many requests|resource_exhausted/i.test(message)) {
+    return 'The travel provider has reached its request limit. Wait for the quota to reset, or check the provider account limits before retrying.'
+  }
   if (/timed out|timeout/i.test(message)) return 'This mission took longer than expected. Try narrowing the request and run it again.'
-  if (/configuration|required.*api key|provider/i.test(message)) return 'The mission service is temporarily unavailable. Please try again later.'
+  if (/configuration|required.*api key|missing .*key/i.test(message)) return 'A required travel provider is not configured. Ask the MissionOS administrator to check the backend API keys and mock-mode settings.'
   if (/failed to fetch|network|fetch/i.test(message)) return 'We couldn’t connect to MissionOS. Check your connection and try again.'
   return message || 'We couldn’t complete that request. Please try again.'
 }
 
 interface MissionStagesProps {
-  response: MissionResponse
+  response?: MissionResponse
 }
 
 function MissionHeading({
@@ -238,19 +238,38 @@ function ElapsedTime({ startedAt, finishedAt, running }: { startedAt: number; fi
   return <span className="elapsed-time"><span className="elapsed-dot" /> {minutes ? `${minutes}m ` : ''}{String(seconds).padStart(2, '0')}s elapsed</span>
 }
 
-function MissionStages({ response }: MissionStagesProps) {
-  const toolCalls = response.toolCalls
-  const stages = [
-    { label: 'Planning', detail: response.plan.length ? `${response.plan.length} action${response.plan.length === 1 ? '' : 's'} returned` : 'No plan returned', state: response.plan.length ? 'complete' : 'attention' },
-    { label: 'Searching', detail: `${toolCalls.length} tool call${toolCalls.length === 1 ? '' : 's'} · ${response.findings.length} finding${response.findings.length === 1 ? '' : 's'}`, state: toolCalls.some((call) => call.status === 'failed') && !toolCalls.some((call) => call.status === 'completed') ? 'attention' : toolCalls.length ? 'complete' : 'attention' },
-    { label: 'Analyzing', detail: `${response.result.verifiedFacts.length} verified fact${response.result.verifiedFacts.length === 1 ? '' : 's'}`, state: response.result.verifiedFacts.length ? 'complete' : 'neutral' },
-    { label: 'Checking constraints', detail: `${response.result.constraints.length} requirement${response.result.constraints.length === 1 ? '' : 's'} assessed`, state: response.result.constraints.some((item) => item.status === 'violated') ? 'attention' : response.result.constraints.length ? 'complete' : 'neutral' },
-    { label: 'Replanning', detail: response.replans.length ? `${response.replans.length} adjustment${response.replans.length === 1 ? '' : 's'} reported` : 'No replans reported', state: response.replans.length ? 'complete' : 'neutral' },
-    { label: 'Result', detail: response.status === 'completed' ? 'Mission complete' : response.status === 'no_match' ? 'No matching option' : response.status === 'needs_information' ? 'More information needed' : 'Mission not completed', state: response.status === 'completed' ? 'complete' : 'attention' },
+function MissionStages({ response, busy = false }: MissionStagesProps & { busy?: boolean }) {
+  const toolCalls = response?.toolCalls ?? []
+  const returnedOptions = response?.findings.reduce((count, finding) => {
+    const output = finding.output
+    return count + (typeof output === 'object' && output !== null && 'results' in output && Array.isArray(output.results)
+      ? output.results.length
+      : 0)
+  }, 0) ?? 0
+  const constraintStatus = response?.result.constraints ?? []
+  const searchFailed = toolCalls.some((call) => call.status === 'failed') &&
+    !toolCalls.some((call) => call.status === 'completed')
+  const stages = busy ? [
+    { label: 'Planning', detail: 'Execution details not streamed yet', state: 'awaiting' },
+    { label: 'Searching', detail: 'Execution details not streamed yet', state: 'awaiting' },
+    { label: 'Comparing', detail: 'Returned options will appear with the response', state: 'awaiting' },
+    { label: 'Checking constraints', detail: 'Assessments will appear with the response', state: 'awaiting' },
+    { label: 'Replanning', detail: 'Any replan history will appear with the response', state: 'awaiting' },
+    { label: 'Final result', detail: 'Waiting for the mission service', state: 'awaiting' },
+  ] : [
+    { label: 'Planning', detail: response?.plan.length ? `${response.plan.length} plan action${response.plan.length === 1 ? '' : 's'} returned` : 'No plan returned', state: response?.plan.length ? 'complete' : 'attention' },
+    { label: 'Searching', detail: `${toolCalls.length} tool call${toolCalls.length === 1 ? '' : 's'} · ${response?.findings.length ?? 0} finding${response?.findings.length === 1 ? '' : 's'}`, state: searchFailed ? 'attention' : toolCalls.length ? 'complete' : 'attention' },
+    { label: 'Comparing', detail: returnedOptions ? `${returnedOptions} option${returnedOptions === 1 ? '' : 's'} available to compare` : 'No options returned for comparison', state: 'neutral' },
+    { label: 'Checking constraints', detail: constraintStatus.length
+      ? `${constraintStatus.filter((item) => item.status === 'satisfied').length} satisfied · ${constraintStatus.filter((item) => item.status === 'violated').length} violated · ${constraintStatus.filter((item) => item.status === 'unknown').length} unknown`
+      : 'No constraint assessments returned',
+    state: constraintStatus.some((item) => item.status !== 'satisfied') ? 'attention' : constraintStatus.length ? 'complete' : 'neutral' },
+    { label: 'Replanning', detail: response?.replans.length ? `${response.replans.length} replanning step${response.replans.length === 1 ? '' : 's'} returned` : 'No replans reported', state: response?.replans.length ? 'complete' : 'neutral' },
+    { label: 'Final result', detail: response?.status === 'completed' ? 'Mission complete' : response?.status === 'no_match' ? 'No matching option' : response?.status === 'needs_information' ? 'More information needed' : 'Mission not completed', state: response?.status === 'completed' ? 'complete' : 'attention' },
   ]
 
-  return <section className="stage-section" aria-label="Mission stages">
-    <div className="stage-heading"><div><span className="section-overline">EXECUTION TRACE</span><h2>How your travel agent worked</h2></div><span>Based on returned activity</span></div>
+  return <section className="stage-section" aria-label="Mission stages" aria-live={busy ? 'polite' : undefined}>
+    <div className="stage-heading"><div><span className="section-overline">{busy ? 'MISSION PROGRESS' : 'EXECUTION TRACE'}</span><h2>{busy ? 'Travel mission in progress' : 'How your travel agent worked'}</h2></div><span>{busy ? 'Live activity is not available' : 'Based on returned activity'}</span></div>
     <ol className="stage-list">
       {stages.map((stage) => <li className="stage-item" data-state={stage.state} key={stage.label}>
         <span className="stage-number" aria-hidden="true">{stage.state === 'complete' ? '✓' : stage.state === 'attention' ? '!' : '·'}</span>

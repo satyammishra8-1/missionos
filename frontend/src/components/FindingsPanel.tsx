@@ -86,12 +86,18 @@ export function ResultOptionCard({ item, currency, highlighted = false }: { item
   if (!isRecord(item)) return <article className="result-card"><p>{String(item)}</p></article>
   const flight = typeof item.flightNumber === 'string'
   const title = titleFor(item)
-  const isPlace = typeof item.placeLink === 'string'
+  const isPlace = typeof item.placeLink === 'string' ||
+    typeof item.reviewsCount === 'number' ||
+    isRecord(item.coordinates)
   const link = [item.link, item.bookingLink, item.url].find((value): value is string =>
     typeof value === 'string' && /^https?:\/\//i.test(value),
   ) ?? (typeof item.placeLink === 'string' && /^https?:\/\//i.test(item.placeLink) ? item.placeLink : undefined)
   const price = formatPrice(item.price ?? item.totalPrice ?? item.amount, currency)
-  const excluded = new Set(['link', 'url', 'bookingLink', 'source', 'currency', 'price', 'totalPrice', 'amount', 'airline', 'flightNumber', 'departure', 'arrival', 'duration', 'stops', 'toolId'])
+  const excluded = new Set([
+    'link', 'url', 'bookingLink', 'placeLink', 'source', 'currency', 'price', 'totalPrice', 'amount',
+    'name', 'title', 'airline', 'flightNumber', 'departure', 'arrival', 'duration', 'stops',
+    'toolId', 'coordinates', 'gps_coordinates',
+  ])
   const details = Object.entries(item).filter(([key, value]) => !excluded.has(key) && value !== null && value !== undefined && value !== '')
 
   return <article className={`result-card${flight ? ' flight-card' : ''}`} data-highlighted={highlighted || undefined}>
@@ -108,7 +114,10 @@ export function ResultOptionCard({ item, currency, highlighted = false }: { item
       {formatDuration(item.duration) && <span>{formatDuration(item.duration)}</span>}
       {typeof item.stops === 'number' && <span>{item.stops === 0 ? 'Nonstop' : `${item.stops} stop${item.stops === 1 ? '' : 's'}`}</span>}
     </div>}
-    {details.length > 0 && <dl className="result-details">{details.map(([key, value]) => <div key={key}><dt>{humanizeKey(key)}</dt><dd>{displayValue(value)}</dd></div>)}</dl>}
+    {details.length > 0 && <dl className="result-details">{details.map(([key, value]) => <div key={key}>
+      <dt>{key === 'address' && isPlace ? 'Location' : key === 'reviewsCount' || key === 'reviews' ? 'Reviews' : humanizeKey(key)}</dt>
+      <dd>{displayValue(value)}</dd>
+    </div>)}</dl>}
     {link && <a className="source-link" href={link} target="_blank" rel="noreferrer">
       {isPlace ? 'View on Google Maps' : flight ? 'Search this flight' : item.bookingLink ? 'View booking options' : 'Open source'}
       <ArrowUpRight size={13} aria-hidden="true" />

@@ -30,7 +30,9 @@ export function FinalResult({ result, status, error, toolCalls }: FinalResultPro
     ? displaySummary(result.summary)
       : status === 'needs_information'
         ? 'MissionOS couldn’t verify enough travel information to complete this request.'
-        : 'Travel findings are ready below.'
+        : status === 'completed'
+          ? 'The mission service marked this request complete. Review its verified information, sources, and constraint assessments below.'
+          : 'The mission has not returned a completed result.'
 
   return (
     <section className="final-result" data-state={status} aria-labelledby="final-result-heading">
@@ -39,12 +41,21 @@ export function FinalResult({ result, status, error, toolCalls }: FinalResultPro
           <p className="section-kicker">TRAVEL SUMMARY</p>
           <h2 id="final-result-heading" className="section-title">{heading}</h2>
         </div>
-        <span className="result-seal" data-state={status}>{status === 'completed' ? 'Ready' : status === 'no_match' ? 'No match' : status === 'needs_information' ? 'Needs details' : status === 'failed' ? 'Not completed' : 'In progress'}</span>
+        <span className="result-seal" data-state={status}>{status === 'completed' ? 'Complete' : status === 'no_match' ? 'No match' : status === 'needs_information' ? 'Needs details' : status === 'failed' ? 'Not completed' : 'In progress'}</span>
       </div>
       <p className="result-summary">{summary}</p>
 
+      {result.verifiedFacts.length > 0 && <section className="verified-facts" aria-labelledby="verified-facts-heading">
+        <h3 id="verified-facts-heading">Verified information</h3>
+        <ul>{result.verifiedFacts.map((fact, index) => <li key={`${fact.toolId}-${index}`}>
+          <p>{fact.claim}</p>
+          <span>From {fact.source ?? formatToolName(fact.toolId)}</span>
+          {fact.url && <a href={fact.url} target="_blank" rel="noreferrer">View source <span className="visually-hidden">for {fact.claim}</span></a>}
+        </li>)}</ul>
+      </section>}
+
       {result.assumptions.length > 0 && <div className="result-assumptions">
-        <h3>Assumptions and unverified details</h3>
+        <h3>Assumptions</h3>
         <ul>{result.assumptions.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul>
       </div>}
 
@@ -79,7 +90,7 @@ export function FinalResult({ result, status, error, toolCalls }: FinalResultPro
         </div>}
       </div>}
 
-      {status === 'needs_information' && result.missingInformation.length > 0 && <div className="next-actions">
+      {result.missingInformation.length > 0 && <div className="next-actions missing-information">
         <h3>Information still needed</h3><ul>{result.missingInformation.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul>
       </div>}
       {status === 'failed' && failure && <div className="failure-guidance">
@@ -151,10 +162,19 @@ function describeFailure(
   const configurationMessage = error?.code === 'configuration'
     ? errorMessage
     : [errorMessage, toolMessage].find((message) => /configuration|required.*api key|provider/i.test(message ?? ''))
+  const quotaMessage = [errorMessage, toolMessage].find((message) =>
+    /quota|rate.?limit|too many requests|resource_exhausted/i.test(message ?? ''),
+  )
+  if (quotaMessage) {
+    return {
+      reason: quotaMessage,
+      suggestions: ['Wait for the provider quota to reset', 'Check the provider account limits', 'Retry after confirming service availability'],
+    }
+  }
   if (error?.code === 'configuration' || configurationMessage) {
     return {
       reason: configurationMessage || 'A required service is not configured.',
-      suggestions: ['Try again later', 'Contact the MissionOS administrator if this continues'],
+      suggestions: ['Ask the MissionOS administrator to configure the required backend API key', 'Confirm the live provider is enabled and mock mode is disabled'],
     }
   }
   const timeoutMessage = [errorMessage, toolMessage].find((message) => /timed out|timeout/i.test(message ?? ''))
