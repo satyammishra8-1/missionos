@@ -66,6 +66,7 @@ export interface MissionResponse {
   error?: { code: string; message: string } | null
   plan: readonly MissionPlanStep[]
   toolCalls: readonly MissionToolCall[]
+  plannerWarnings?: readonly string[]
   replans: readonly MissionReplan[]
   findings: readonly MissionFinding[]
   evidence: readonly MissionEvidence[]

@@ -46,6 +46,8 @@ function isMissionResponse(value: unknown): value is MissionResponse {
     typeof value.status === 'string' &&
     Array.isArray(value.plan) &&
     Array.isArray(value.toolCalls) &&
+    (value.plannerWarnings === undefined ||
+      Array.isArray(value.plannerWarnings) && value.plannerWarnings.every((warning) => typeof warning === 'string')) &&
     Array.isArray(value.replans) &&
     Array.isArray(value.findings) &&
     Array.isArray(value.evidence) &&

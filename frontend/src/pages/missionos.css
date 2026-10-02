@@ -303,6 +303,9 @@ kbd { padding: 2px 4px; border: 1px solid #e1e1d8; border-radius: 3px; backgroun
 .result-seal[data-state='failed'], .result-seal[data-state='no_match'] { border-color: #ecd4ce; background: var(--red-soft); color: var(--red); }
 .result-seal[data-state='needs_information'] { border-color: #ead8b7; background: var(--amber-soft); color: #855b25; }
 .result-summary { max-width: 850px; margin: 11px 0 0; color: #484c44; font-family: 'Newsreader', Georgia, serif; font-size: 19px; line-height: 1.45; overflow-wrap: anywhere; }
+.planner-warning { margin-top: 14px; padding: 12px 14px; border: 1px solid #ead8b7; border-radius: 6px; background: var(--amber-soft); }
+.planner-warning h3 { margin: 0; color: #765522; font-size: 10px; font-weight: 700; }
+.planner-warning ul { margin: 6px 0 0; padding-left: 16px; color: #765f3c; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .verified-facts { margin-top: 16px; padding: 13px 15px; border: 1px solid #dce7df; border-radius: 6px; background: #f4f8f4; }
 .verified-facts h3 { margin: 0; color: var(--ink); font-size: 11px; font-weight: 700; }
 .verified-facts ul { margin: 8px 0 0; padding: 0; display: grid; gap: 9px; list-style: none; }
@@ -534,6 +537,9 @@ kbd { padding: 2px 4px; border: 1px solid #e1e1d8; border-radius: 3px; backgroun
 .workspace-shell[data-theme='dark'] .workspace-section,
 .workspace-shell[data-theme='dark'] .result-card { border-color: var(--line); background: var(--surface); color: var(--ink); }
 .workspace-shell[data-theme='dark'] .verified-facts { border-color: #34504b; background: #1c302f; }
+.workspace-shell[data-theme='dark'] .planner-warning { border-color: #65543a; background: #3a3025; }
+.workspace-shell[data-theme='dark'] .planner-warning h3,
+.workspace-shell[data-theme='dark'] .planner-warning ul { color: #e0bb82; }
 .workspace-shell[data-theme='dark'] .verified-facts li p { color: var(--ink); }
 .workspace-shell[data-theme='dark'] .verified-facts li > a { color: var(--accent); }
 .workspace-shell[data-theme='dark'] .stage-item[data-state='awaiting'] .stage-number { border-color: var(--line); background: var(--surface-muted); color: var(--subtle); }

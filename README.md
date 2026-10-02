@@ -32,7 +32,7 @@ The mission endpoint currently returns its response after execution; it does **n
 
 ### Gemini
 
-Gemini is the mission planner and summarizer. It chooses registered tools and uses their returned observations to decide whether to continue, replan, or complete. The agent's deterministic constraint evaluator remains separate from Gemini's planning. A capability-planner fallback is available when the Gemini planner fails, but fallback use does not turn mock provider output into a verified live result.
+Gemini is the mission planner and summarizer. It chooses registered tools and uses their returned observations to decide whether to continue, replan, or complete. The agent's deterministic constraint evaluator remains separate from Gemini's planning. A capability-planner fallback is available when the Gemini planner fails; the returned mission includes a planner warning when that fallback is used. Fallback use does not turn mock provider output into a verified live result.
 
 ### SerpApi integrations
 
@@ -130,6 +130,18 @@ npm run lint --workspace=backend
 ```
 
 Backend tests use mock clients or injected responses where appropriate; those tests do not by themselves verify external API availability. The frontend currently has lint and build checks but no dedicated automated test script.
+
+## Release verification
+
+Live checks were performed on 2026-10-02 and are separate from the automated test suite:
+
+- A flight mission using Gemini and SerpApi Google Flights completed with 20 returned flight options for the tested Bengaluru–Hyderabad query.
+- A direct Google Maps Places tool retest using SerpApi returned restaurant results for Koramangala after retrying an unsupported location parameter.
+- An end-to-end local restaurant mission returned Maps and web-search findings in an earlier run, but did not complete: its budget assessment remained unknown. A later mission attempt was blocked by the Gemini Free Tier daily request limit.
+- The tested Goa itinerary request did not call search tools because exact travel dates were missing.
+- Google Hotels was not independently verified against the live provider during these checks. The browser result-layout review used a local fixture, not live mission results.
+
+These checks verify only the specific calls and queries listed above. Live provider behavior was not re-tested during the final release review because the Gemini quota limit had been reached.
 
 ## Limitations
 

@@ -31,6 +31,7 @@ export function createMissionRouter(
           : null,
         plan: mission.planHistory.flatMap((plan) => plan.steps),
         toolCalls: mission.toolCalls,
+        plannerWarnings: mission.plannerWarnings,
         replans: mission.replans,
         findings: mission.completedTasks,
         evidence: mission.evidence,

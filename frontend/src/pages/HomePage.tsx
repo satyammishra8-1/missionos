@@ -131,9 +131,9 @@ export function HomePage() {
             <div className="example-grid">
               {[
                 { category: 'FLIGHT SEARCH', title: 'Find Bengaluru → Hyderabad flights for 2 on October 10, 2026 under ₹20,000.', icon: Plane, symbol: 'flight' },
-                { category: 'HOTEL SEARCH', title: 'Find a Goa hotel for 2, November 10–13, 2026, with breakfast and a pool.', icon: BedDouble, symbol: 'research' },
+                { category: 'HOTEL SEARCH', title: 'Find a Goa hotel for 2, check in November 10, 2026 and check out November 13, 2026, with breakfast and a pool.', icon: BedDouble, symbol: 'research' },
                 { category: 'RESTAURANTS & LOCAL', title: 'Find highly rated restaurants near Koramangala, Bengaluru.', icon: MapPin, symbol: 'local' },
-                { category: 'COMPLETE TRIP', title: 'Plan a 3-day Bengaluru → Goa trip for 2, October 10–12, 2026, under ₹30,000 with flights, hotel, and places to visit.', icon: Compass, symbol: 'plan' },
+                { category: 'COMPLETE TRIP', title: 'Plan a 3-day Bengaluru → Goa trip for 2, October 10, 2026 to October 12, 2026, under ₹30,000 with flights, hotel, and places to visit.', icon: Compass, symbol: 'plan' },
               ].map((example) => <button className="example-card" type="button" key={example.title} onClick={() => setGoal(example.title)}>
                 <span className={`example-symbol example-symbol-${example.symbol}`} aria-hidden="true">
                   <example.icon size={16} strokeWidth={1.8} />
@@ -157,7 +157,7 @@ export function HomePage() {
         {response && missionStartedAt !== undefined && <section className="active-mission" aria-label="Mission execution workspace">
           <MissionHeading goal={submittedGoal} status={response.status} startedAt={missionStartedAt} finishedAt={missionFinishedAt} onReset={resetMission} />
           <MissionStages response={response} />
-          <FinalResult result={response.result} status={response.status} error={response.error} toolCalls={response.toolCalls} />
+          <FinalResult result={response.result} status={response.status} error={response.error} toolCalls={response.toolCalls} plannerWarnings={response.plannerWarnings} />
           <div className="workspace-grid">
             <div className="workspace-primary">
               <FindingsPanel findings={response.findings} />

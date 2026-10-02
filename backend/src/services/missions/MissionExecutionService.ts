@@ -91,6 +91,7 @@ export interface MissionState {
   toolCalls: readonly MissionToolCall[]
   observations: readonly ToolExecutionResult[]
   failures: readonly MissionFailure[]
+  plannerWarnings: readonly string[]
   replans: readonly MissionReplan[]
   constraintHistory: readonly ConstraintEvaluation[]
   constraintAssessments: readonly ConstraintAssessment[]
@@ -394,15 +395,20 @@ function buildMissionState(
     .filter((item) => item.status === 'unknown')
     .map((item) => `${item.constraint}: ${item.reason}`)
   const missingInformation = [...new Set([...plannerMissingInformation, ...constraintMissingInformation])]
+  const plannerWarnings = [...new Set(state.planningHistory.flatMap((plan) =>
+    plan.rationale?.startsWith('Gemini planning failed:') ? [plan.rationale] : [],
+  ))]
   const hasUnknownConstraints = constraintAssessments.some((item) => item.status === 'unknown')
   const plannerNeedsInformation = state.planningHistory.at(-1)?.decision === 'replan'
   const status = noMatchAssessment
     ? 'no_match'
+    : state.status === 'completed' && missingInformation.length > 0
+      ? 'needs_information'
     : state.status === 'failed' && (
-    hasUnknownConstraints || missingInformation.length > 0 || plannerNeedsInformation
-  )
-    ? 'needs_information'
-    : state.status
+        hasUnknownConstraints || missingInformation.length > 0 || plannerNeedsInformation
+      )
+      ? 'needs_information'
+      : state.status
   const finalResult = noMatchAssessment
     ? noMatchResult(goal, state.observations, noMatchAssessment)
     : state.finalResult
@@ -418,6 +424,7 @@ function buildMissionState(
     toolCalls,
     observations: state.observations,
     failures,
+    plannerWarnings,
     replans: state.replanReasons.map((reason, index) => ({ iteration: index + 1, reason })),
     constraintHistory: state.constraintHistory,
     constraintAssessments,

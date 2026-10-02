@@ -7,9 +7,10 @@ interface FinalResultProps {
   status: MissionStatus
   error?: { code: string; message: string } | null
   toolCalls: readonly MissionToolCall[]
+  plannerWarnings?: readonly string[]
 }
 
-export function FinalResult({ result, status, error, toolCalls }: FinalResultProps) {
+export function FinalResult({ result, status, error, toolCalls, plannerWarnings = [] }: FinalResultProps) {
   const final = isRecord(result.summary) ? result.summary : undefined
   const constraint = isRecord(final?.constraint) ? final.constraint : undefined
   const expected = constraint?.expected
@@ -26,11 +27,11 @@ export function FinalResult({ result, status, error, toolCalls }: FinalResultPro
       : 'Your travel result'
   const summary = status === 'failed'
     ? 'MissionOS couldn’t find enough verified travel information to complete this request.'
+    : status === 'needs_information'
+      ? 'This mission is incomplete because some travel information or requirements remain unverified. Review the missing information and constraint status below.'
     : result.summary !== null && result.summary !== undefined
     ? displaySummary(result.summary)
-      : status === 'needs_information'
-        ? 'MissionOS couldn’t verify enough travel information to complete this request.'
-        : status === 'completed'
+      : status === 'completed'
           ? 'The mission service marked this request complete. Review its verified information, sources, and constraint assessments below.'
           : 'The mission has not returned a completed result.'
 
@@ -44,6 +45,11 @@ export function FinalResult({ result, status, error, toolCalls }: FinalResultPro
         <span className="result-seal" data-state={status}>{status === 'completed' ? 'Complete' : status === 'no_match' ? 'No match' : status === 'needs_information' ? 'Needs details' : status === 'failed' ? 'Not completed' : 'In progress'}</span>
       </div>
       <p className="result-summary">{summary}</p>
+
+      {plannerWarnings.length > 0 && <div className="planner-warning" role="status">
+        <h3>Gemini planner fallback used</h3>
+        <ul>{plannerWarnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul>
+      </div>}
 
       {result.verifiedFacts.length > 0 && <section className="verified-facts" aria-labelledby="verified-facts-heading">
         <h3 id="verified-facts-heading">Verified information</h3>

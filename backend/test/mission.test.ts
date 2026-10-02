@@ -132,6 +132,23 @@ test('mission executes multiple dynamically selected tools and collects evidence
   assert.deepEqual(state.missingInformation, [])
 })
 
+test('mission completion with planner-reported missing information is not marked completed', async () => {
+  const service = missionService({
+    createPlan: (request) => ({
+      goalId: request.goal.id,
+      decision: 'complete',
+      steps: [],
+      finalResult: { summary: 'A travel summary is available.' },
+      missingInformation: ['Exact return date was not provided.'],
+    }),
+  })
+
+  const state = await service.execute(missionRequest)
+
+  assert.equal(state.status, 'needs_information')
+  assert.deepEqual(state.missingInformation, ['Exact return date was not provided.'])
+})
+
 test('mission preserves source, URL, tool, title, and data from a SerpApi result', async () => {
   const service = createMissionExecutionService({
     serpApi: { apiKey: '', mockMode: true },
@@ -435,6 +452,7 @@ test('mission executes the capability fallback after an invalid Gemini tool call
   assert.equal(state.toolCalls[0]?.toolId, 'google-search')
   assert.equal(state.observations[0]?.ok, true)
   assert.match(state.planHistory[0]?.rationale ?? '', /capability-based fallback/)
+  assert.match(state.plannerWarnings[0] ?? '', /Gemini planning failed: Gemini selected an unavailable function/)
 })
 
 test('mission executes the capability fallback after Gemini throws without false completion', async () => {
@@ -446,6 +464,7 @@ test('mission executes the capability fallback after Gemini throws without false
   assert.equal(state.toolCalls[0]?.toolId, 'google-search')
   assert.equal(state.observations[0]?.ok, true)
   assert.match(state.planHistory[0]?.rationale ?? '', /capability-based fallback/)
+  assert.match(state.plannerWarnings[0] ?? '', /Gemini planning failed: Gemini unavailable/)
 })
 
 test('mission handles planner timeout and returns a failed state', async () => {
@@ -489,8 +508,8 @@ test('POST /api/missions returns the mission response shape', async () => {
       goalId: request.goal.id,
       decision: 'complete',
       steps: [],
+      finalResult: { summary: 'Partial travel findings are available.', assumptions: ['Test assumption'] },
       missingInformation: ['A booking link was unavailable.'],
-      finalResult: { summary: 'Ready', assumptions: ['Test assumption'] },
     }),
   }
   const service = missionService(planner, {
@@ -508,15 +527,16 @@ test('POST /api/missions returns the mission response shape', async () => {
   })
 
   assert.equal(payload.missionId, 'mission-test-id')
-  assert.equal(payload.status, 'completed')
+  assert.equal(payload.status, 'needs_information')
   assert.equal(payload.error, null)
   assert.deepEqual(payload.plan, [])
   assert.deepEqual(payload.toolCalls, [])
+  assert.deepEqual(payload.plannerWarnings, [])
   assert.deepEqual(payload.replans, [])
   assert.deepEqual(payload.findings, [])
   assert.deepEqual(payload.evidence, [])
   assert.deepEqual(payload.result, {
-    summary: { summary: 'Ready', assumptions: ['Test assumption'] },
+    summary: { summary: 'Partial travel findings are available.', assumptions: ['Test assumption'] },
     verifiedFacts: [],
     assumptions: ['Test assumption'],
     missingInformation: ['A booking link was unavailable.'],
